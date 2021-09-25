@@ -1,0 +1,12 @@
+<html>
+    <head>
+        <title>Webcam</title>
+    </head>
+    <body>
+        <h1>Last image:</h1>
+        <img src="{{url_for('static', path='/images/last.png')}}" style="border: 3px solid black"/>
+        <br>
+        <!-- <a href="/r"><button>Take photo</button></a> -->
+        <a href="/video_feed" target="blank"><button>Stream</button></a>
+    </body>
+</html>
