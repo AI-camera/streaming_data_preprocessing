@@ -61,12 +61,11 @@ def reduce_init_t(init_t):
     init_t = init_t.astype(np.float64)/255 # normalizing the transmission map
     return init_t
 
-
-def dehaze(I, tmin=0.1, w=15, alpha=0.4, omega=0.75, p=0.1, eps=1e-3, reduce=False):
+def lowlight_enhance(I, tmin=0.1, w=15, alpha=0.4, omega=0.75, p=0.1, eps=1e-3, reduce=True):
     I = np.asarray(I, dtype=np.float64) # Convert the input to a float array.
     I = I[:, :, :3] / 255
     m, n, _ = I.shape
-    print("1")
+
     Idark, Ibright = get_illumination_channel(I, w)
     A = get_atmosphere(I, Ibright, p)
  
@@ -75,15 +74,15 @@ def dehaze(I, tmin=0.1, w=15, alpha=0.4, omega=0.75, p=0.1, eps=1e-3, reduce=Fal
         init_t = reduce_init_t(init_t)
     corrected_t = get_corrected_transmission(I, A, Idark, Ibright, init_t, alpha, omega, w)
 
-    # normI = (I - I.min()) / (I.max() - I.min())
-    # refined_t = guided_filter(normI, corrected_t, w, eps) # applying guided filter
-    refined_t = corrected_t
-    print("2")
+    normI = (I - I.min()) / (I.max() - I.min())
+    refined_t = guided_filter(normI, corrected_t, w, eps) # applying guided filter
+    # refined_t = corrected_t
+
     J_refined = get_final_image(I, A, refined_t, tmin)
      
-    print("3")
     enhanced = (J_refined*255).astype(np.uint8)
-    # f_enhanced = cv2.detailEnhance(enhanced, sigma_s=10, sigma_r=0.15)
-    # f_enhanced = cv2.edgePreservingFilter(f_enhanced, flags=1, sigma_s=64, sigma_r=0.2)
-    f_enhanced = enhanced
+    f_enhanced = cv2.detailEnhance(enhanced, sigma_s=10, sigma_r=0.15)
+    f_enhanced = cv2.edgePreservingFilter(f_enhanced, flags=1, sigma_s=64, sigma_r=0.2)
+    # f_enhanced = enhanced
+    f_enhanced = cv2.medianBlur(f_enhanced,3)
     return f_enhanced

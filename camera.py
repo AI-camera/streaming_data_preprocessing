@@ -1,11 +1,11 @@
-from lowlight_enhance import dehaze
+import lowlight_enhance
 import cv2
 import numpy as np
 import threading
 import time
 import logging
-from optical_flow_motion_detector import OpticalFlowMotionDetector
-from object_tracking import ObjectTracking
+from object_tracking.optical_flow_motion_detector import OpticalFlowMotionDetector
+from object_tracking.object_tracking import ObjectTracking
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ class Camera:
         self.motion_detector = None
         self.start_time = time.time()
         self.end_tine = time.time()
-        
         self.object_tracker = None
+        self.sizeStr = str(int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))) + 'x' + str(int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
     def run(self):
         logging.debug("Perparing thread")
@@ -69,7 +69,7 @@ class Camera:
         self.isrunning = False
 
     def attach_fps(self, frame):
-        return cv2.putText(frame, 'FPS: ' + str(self.stream_fps), (10, 450), cv2.FONT_HERSHEY_SIMPLEX,
+        return cv2.putText(frame, 'FPS: ' + str(self.get_regulated_stream_fps()), (10, 450), cv2.FONT_HERSHEY_SIMPLEX,
                            1, (0, 255, 0), 2, cv2.LINE_AA)
 
     def encode_to_png(self, frame):
@@ -94,6 +94,9 @@ class Camera:
         if len(self.frames) > 0:
             return self.frames[-1]
 
+    def get_sizestr(self):
+        return self.sizeStr
+
     def regulate_stream_fps(self):
         locktime = 2
         try:
@@ -106,6 +109,7 @@ class Camera:
                 self.stream_fps = fps_adjustment
 
             # Bump the fps up if there's motion
+            # print(fps_adjustment)
             if(fps_adjustment > 3):
                 self.stream_fps = self.fps
                 self.fps_lock = True
@@ -114,7 +118,10 @@ class Camera:
             print(e)
 
     def get_regulated_stream_fps(self):
-        return self.stream_fps
+        if self.stream_fps < 1:
+            return 1
+        else:
+            return self.stream_fps
 
     #Denoise using bilateral filter
     def denoise(self, frame):
@@ -152,7 +159,7 @@ class Camera:
 
     #Low light enhance
     def lowlight_enhance(self, frame):
-        return dehaze(frame)
+        return lowlight_enhance.lowlight_enhance(frame)
 
     def get_lowlight_enhance_concat_frame(self):
         return self.get_concat_frame(self.lowlight_enhance)
@@ -197,10 +204,10 @@ class Camera:
     def get_single_frame(self,preprocessfunc):
         raw_frame = self.attach_fps(self.get_frame_raw())
         preprocessed_frame = self.attach_fps(preprocessfunc(raw_frame))
-        return self.encode_to_jpg(preprocessed_frame)
+        return preprocessed_frame
 
     def get_concat_frame(self, preprocessfunc):
-        raw_frame = self.attach_fps(self.get_frame_raw())
-        preprocessed_frame = self.attach_fps(preprocessfunc(raw_frame))
+        raw_frame = self.get_frame_raw()
+        preprocessed_frame = preprocessfunc(raw_frame)
         frame = np.concatenate((raw_frame, preprocessed_frame), axis=1)
-        return self.encode_to_jpg(frame)
+        return frame
