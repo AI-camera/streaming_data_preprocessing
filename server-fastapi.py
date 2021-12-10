@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 fps = 24
 fps_max = 24
-streaming_time = 120
+streaming_time = 100
 
 camera = Camera(fps_max)
 camera.run()
@@ -64,7 +64,7 @@ async def gen(camera, regulate_stream_fps=True, get_frame=camera.get_frame):
             if regulate_stream_fps:
                 fps = camera.get_regulated_stream_fps()
             await asyncio.sleep(1/fps)
-            frame = get_frame()
+            frame = camera.encode_to_jpg(get_frame())
         except Exception as e:
             print(e)
         finally:
@@ -106,43 +106,43 @@ async def gen_sample():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-@app.get("/video_feed")
-async def video_feed():
-    return StreamingResponse(gen(camera, False), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed")
+# async def video_feed():
+#     return StreamingResponse(gen(camera, False,get_frame=camera.get_frame_raw), media_type="multipart/x-mixed-replace; boundary=--frame")
 
 @app.get("/video_feed_motion_FPS")
 async def video_feed():
-    return StreamingResponse(gen(camera, True), media_type="multipart/x-mixed-replace; boundary=--frame")
+    return StreamingResponse(gen(camera, True,get_frame=camera.get_fps_attached_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
 
-@app.get("/video_feed_sample")
-async def video_feed_sample():
-    return StreamingResponse(gen_sample(), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed_sample")
+# async def video_feed_sample():
+#     return StreamingResponse(gen_sample(), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_denoised")
-async def video_feed_denoised():
-    return StreamingResponse(gen(camera, False,camera.get_denoised_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed_denoised")
+# async def video_feed_denoised():
+#     return StreamingResponse(gen(camera, False,camera.get_denoised_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
 
-@app.get("/video_feed_he")
-async def video_feed_he():
-    return StreamingResponse(gen(camera, False, camera.get_he_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed_he")
+# async def video_feed_he():
+#     return StreamingResponse(gen(camera, False, camera.get_he_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
 @app.get("/video_feed_lowlight_enhance")
 async def video_feed_lowlight_enhance():
     return StreamingResponse(gen(camera, False, camera.get_lowlight_enhance_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_median_blur")
-async def video_feed_median_blur():
-    return StreamingResponse(gen(camera, False, camera.get_median_blur_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed_median_blur")
+# async def video_feed_median_blur():
+#     return StreamingResponse(gen(camera, False, camera.get_median_blur_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_viqs")
-async def video_feed_viqs():
-    return StreamingResponse(gen(camera, False, camera.get_frame_with_motion_points), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed_viqs")
+# async def video_feed_viqs():
+#     return StreamingResponse(gen(camera, False, camera.get_frame_with_motion_points), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_object_tracking")
-async def video_feed_object_tracking():
-    return StreamingResponse(gen(camera, False, camera.get_object_tracked_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+# @app.get("/video_feed_object_tracking")
+# async def video_feed_object_tracking():
+#     return StreamingResponse(gen(camera, False, camera.get_object_tracked_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
 if __name__ == '__main__':
     uvicorn.run(app, host="localhost", port=5000, log_level="info")
