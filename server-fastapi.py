@@ -16,7 +16,6 @@ import logging
 import logging.config
 import conf
 import cv2
-import timeit
 
 logging.config.dictConfig(conf.dictConfig)
 logger = logging.getLogger(__name__)
