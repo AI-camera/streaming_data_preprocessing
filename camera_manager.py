@@ -1,8 +1,4 @@
-import multiprocessing
 from camera import Camera
-from multiprocessing import Process
-from multiprocessing import shared_memory
-
 class CameraManager:
     def __init__(self):
         self.camera_dict = dict()

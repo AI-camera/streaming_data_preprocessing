@@ -1,58 +1,30 @@
 import asyncio
+from io import DEFAULT_BUFFER_SIZE
 from time import time
-import numpy as np
-# from typing import List
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from numpy.lib.function_base import average
-# from fastapi import WebSocket, WebSocketDisconnect
 from starlette.responses import StreamingResponse
 import uvicorn
-from fastapi.templating import Jinja2Templates
-from starlette.requests import Request
-from capture import capture_and_save
 from camera import Camera
-import logging
-import logging.config
-import conf
 import cv2
-
-logging.config.dictConfig(conf.dictConfig)
-logger = logging.getLogger(__name__)
+import traceback
 
 fps = 24
 fps_max = 24
 streaming_time = 100
 
-camera = Camera(fps_max)
+camera = Camera(fps_max,"./sample/video_04.mp4",True)
 camera.run()
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-# app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-@app.get("/")
-async def entrypoint(request: Request):
-    logger.debug("Requested /")
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-# @app.get("/r")
-# async def capture(request: Request):
-#     logger.debug("Requested capture")
-#     im = camera.get_frame(_byte=False)
-#     capture_and_save(im)
-#     return templates.TemplateResponse("send_to_init.html", {"request": request})
-
-
-async def gen(camera, regulate_stream_fps=True, get_frame=camera.get_frame):
-    logger.debug("Starting stream")
+async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_frame, preprocess = [], postprocess = []):
     counter = 0
     fps = fps_max
     timelist = []
     numframe = 10
     start_stream = time()
+    frame = None
+    
     while True:
         start = time()
         try:
@@ -62,28 +34,41 @@ async def gen(camera, regulate_stream_fps=True, get_frame=camera.get_frame):
                 break
             if regulate_stream_fps:
                 fps = camera.get_regulated_stream_fps()
-            await asyncio.sleep(1/fps)
-            frame = camera.encode_to_jpg(get_frame())
-        except Exception as e:
-            print(e)
+                await asyncio.sleep(1/fps)
+
+            # Get frame from camera and do processing
+            frame = get_frame()
+            start_preprocess = time()
+            for preprocess_func in preprocess:
+                frame = preprocess_func(frame)
+            # print(f"Preprocess time: %.2f (s)" % (time()-start_preprocess))
+            start_postprocess = time()
+            for postprocess_func in postprocess:
+                frame = postprocess_func(frame)
+            # print(f"Postprocess time: %.2f (s)" % (time()-start_postprocess))
+
+        except:
+            traceback.print_exc()
         finally:
+            start_encode = time()
+            if frame is None:
+                frame = camera.encode_to_png(camera.default_error_image)
+            else:
+                frame = camera.encode_to_jpg(frame)
+            finish_encode = time()
             elapsed = time() - start
-            # print("Time elapsed per frame" +str(elapsed))
+            # print(f"Encoding time: %.2f" % (finish_encode - start_encode))
+            print(f"Time elapsed per frame: %.2f" % elapsed)
             timelist.append(elapsed)
             if len(timelist) == numframe:
-                # print("Mean elapsed per "+ str(numframe) +" frame:" + str(average(timelist)))
+                print("Mean elapsed per "+ str(numframe) + " frame:" 
+                + str(sum(timelist)/len(timelist)))
+                print(f"Mean FPS: %.2f" % (1/(sum(timelist)/len(timelist))))
                 timelist = []
 
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
-
-            # yield (b'--frame\r\n'
-            #     b'Content-Type:image/jpeg\r\n'
-            #     b'Content-Length: ' + f"{len(frame)}".encode() + b'\r\n'
-            #     b'\r\n' + frame + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n') 
         
-        
-
 async def gen_sample():
     counter = 0
     fps = 24
@@ -105,43 +90,30 @@ async def gen_sample():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-# @app.get("/video_feed")
-# async def video_feed():
-#     return StreamingResponse(gen(camera, False,get_frame=camera.get_frame_raw), media_type="multipart/x-mixed-replace; boundary=--frame")
-
 @app.get("/video_feed_motion_FPS")
 async def video_feed():
     return StreamingResponse(gen(camera, True,get_frame=camera.get_fps_attached_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-
-# @app.get("/video_feed_sample")
-# async def video_feed_sample():
-#     return StreamingResponse(gen_sample(), media_type="multipart/x-mixed-replace; boundary=--frame")
-
-# @app.get("/video_feed_denoised")
-# async def video_feed_denoised():
-#     return StreamingResponse(gen(camera, False,camera.get_denoised_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
-
-
-# @app.get("/video_feed_he")
-# async def video_feed_he():
-#     return StreamingResponse(gen(camera, False, camera.get_he_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+@app.get("/video_feed_sample")
+async def video_feed_sample():
+    return StreamingResponse(gen_sample(), media_type="multipart/x-mixed-replace; boundary=--frame")
 
 @app.get("/video_feed_lowlight_enhance")
 async def video_feed_lowlight_enhance():
     return StreamingResponse(gen(camera, False, camera.get_lowlight_enhance_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-# @app.get("/video_feed_median_blur")
-# async def video_feed_median_blur():
-#     return StreamingResponse(gen(camera, False, camera.get_median_blur_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+@app.get("/video_feed_vehicle_detect")
+async def video_feed_vehicle_detect():
+    return StreamingResponse(gen(camera, False,camera.get_raw_frame,
+    postprocess=[camera.detect_vehicle]), 
+    media_type="multipart/x-mixed-replace; boundary=--frame")
 
-# @app.get("/video_feed_viqs")
-# async def video_feed_viqs():
-#     return StreamingResponse(gen(camera, False, camera.get_frame_with_motion_points), media_type="multipart/x-mixed-replace; boundary=--frame")
-
-# @app.get("/video_feed_object_tracking")
-# async def video_feed_object_tracking():
-#     return StreamingResponse(gen(camera, False, camera.get_object_tracked_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+@app.get("/video_feed_vehicle_detect/lowlight_enhance")
+async def video_feed_vehicle_detect_lowlight_enhance():
+    return StreamingResponse(gen(camera, False,camera.get_raw_frame,
+    preprocess=[camera.lowlight_enhance],
+    postprocess=[camera.detect_vehicle]), 
+    media_type="multipart/x-mixed-replace; boundary=--frame")
 
 if __name__ == '__main__':
     uvicorn.run(app, host="localhost", port=5000, log_level="info")

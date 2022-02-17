@@ -51,4 +51,3 @@ class OpticalFlowMotionDetector:
             motion_value = 0
         
         return motion_value
-

@@ -2,14 +2,10 @@ from dehaze import lowlight_enhance
 import cv2
 import numpy as np
 import threading
-# from multiprocessing import Process
 import time
-import logging
 import random
 from object_tracking.optical_flow_motion_detector import OpticalFlowMotionDetector
-from object_tracking.object_tracking import ObjectTracking
-
-logger = logging.getLogger(__name__)
+from streaming_data_preprocessing.yolov3_detector import Detector
 
 thread = None
 
@@ -20,8 +16,6 @@ class Camera:
         - video_source: The source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
         - allow_loop: Set to True to allow looping on video files. This turns those files into endless stream
         """
-        # logger.info(
-        #     f"Initializing camera class with {fps} fps and video_source={video_source}")
         self.fps = fps
         self.video_source = video_source
         self.source = cv2.VideoCapture(self.video_source)
@@ -35,27 +29,27 @@ class Camera:
         self.motion_detector = None
         self.start_time = time.time()
         self.end_tine = time.time()
-        self.object_tracker = None
+
         self.sizeStr = str(int(self.source.get(cv2.CAP_PROP_FRAME_WIDTH))) + 'x' + str(int(self.source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.sizeStrConcat = str(int(self.source.get(cv2.CAP_PROP_FRAME_WIDTH)*2)) + 'x' + str(int(self.source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.allow_loop = allow_loop
+        self.detector = Detector()
 
-        # self.run()
+        self.default_error_image = cv2.imread("images/500-err.jpg")
+
+        self.run()
 
     def run(self):
-        # logging.debug("Perparing thread")
         global thread
-        # if thread is None:
-        # logging.debug("Creating thread")
         thread = threading.Thread(target=self._capture_loop,daemon=True)
-        # logger.debug("Starting thread")
-        self.isrunning = True
-        thread.start()
-        # logger.info("Thread started")
+        if not self.isrunning:
+            self.isrunning = True
+            thread.start()
+        else:
+            print("A camera thread is running already!")
 
     def _capture_loop(self):
         dt = 1/self.fps
-        # logger.debug("Observation started")
         v, img = self.source.read()
         self.first_frame_initialize(img)
 
@@ -70,14 +64,11 @@ class Camera:
             
             time.sleep(dt)
             self.regulate_stream_fps()
-        logger.info("Thread stopped successfully")
 
     def first_frame_initialize(self,first_frame):
         self.motion_detector = OpticalFlowMotionDetector(first_frame)
-        self.object_tracker = ObjectTracking(first_frame)
 
     def stop(self):
-        # logger.debug("Stopping thread")
         self.isrunning = False
 
     def attach_fps(self, frame):
@@ -85,7 +76,7 @@ class Camera:
                            1, (0, 255, 0), 2, cv2.LINE_AA)
 
     def get_fps_attached_frame(self):
-        return self.attach_fps(self.get_frame_raw())
+        return self.attach_fps(self.get_raw_frame())
 
     def encode_to_png(self, frame):
         return cv2.imencode('.png', frame)[1].tobytes()
@@ -95,7 +86,7 @@ class Camera:
 
     def get_frame(self, _bytes=True):
         if len(self.frames) > 0:
-            frame_with_fps = self.attach_fps(self.get_frame_raw())
+            frame_with_fps = self.attach_fps(self.get_raw_frame())
             if _bytes:
                 img = self.encode_to_jpg(frame_with_fps)
             else:
@@ -108,7 +99,7 @@ class Camera:
     def get_sample_frame_jpg(self):
         return self.encode_to_jpg(cv2.imread("./images/not_found.jpeg"))
 
-    def get_frame_raw(self):
+    def get_raw_frame(self):
         if len(self.frames) > 0:
             return self.frames[-1]
     
@@ -131,7 +122,7 @@ class Camera:
         try:
             if(self.fps_lock and (time.time() - self.start_time) > locktime):
                 self.fps_lock = False
-            frame_raw = self.get_frame_raw()
+            frame_raw = self.get_raw_frame()
             fps_adjustment = np.ceil(
                 self.motion_detector.detect(frame_raw) % self.fps)
             if(not self.fps_lock):
@@ -151,9 +142,11 @@ class Camera:
             return 1
         else:
             return self.stream_fps
-
-    #Denoise using median filter
+   
     def denoise(self, frame):
+        '''
+        - Denoise using median filter
+        '''
         denoised_frame = None
         if(frame is None):
             return None
@@ -174,8 +167,10 @@ class Camera:
     def get_median_blur_concat_frame(self):
         return self.get_concat_frame(self.median_blur)    
 
-    #Histogram Equalize
     def he(self, frame):
+        '''
+        - Histogram Equalize
+        '''
         frame_YCC = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
         channels = cv2.split(frame_YCC)
         channels[0] = cv2.equalizeHist(channels[0])
@@ -185,17 +180,34 @@ class Camera:
     def get_he_concat_frame(self):
         return self.get_concat_frame(self.he)
 
-    #Low light enhance
-    def lowlight_enhance(self, frame):
-        return lowlight_enhance(frame)
+    def lowlight_enhance(self, img):
+        '''
+        - Lowlight enhance
+        '''
+        #Downscale the image for better performance
+        scale_percent = 0.4 # percent of original size
+        width = int(img.shape[1] * scale_percent)
+        height = int(img.shape[0] * scale_percent)
+        dim = (width, height)
+        img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+        img = lowlight_enhance(img)
+
+        scale_percent = 1/scale_percent #Scale back
+        width = int(img.shape[1] * scale_percent)
+        height = int(img.shape[0] * scale_percent)
+        dim = (width, height)
+        result = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+
+        return result
 
     def get_lowlight_enhance_concat_frame(self):
         return self.get_concat_frame(self.lowlight_enhance)
-
-    #Auto VIQS
-    ##Using Optical Flow 
-    ###Detect motion points, draw bounding box around those points, reduce img quality outside those boxes
+    
     def attach_motion_points(self,frame):
+        '''
+        - Using Optical Flow 
+        - Detect motion points, draw bounding box around those points, reduce img quality outside those boxes
+        '''
         bbox_width = 40
         self.motion_detector.refresh_motion_points(frame)
         for i, (new,old) in self.motion_detector.get_motion_points():
@@ -210,34 +222,29 @@ class Camera:
                 frame = cv2.circle(frame,(c,d),radius=3,color=(255,255,0),thickness=-1)
 
     def get_frame_with_motion_points(self):
-        frame = self.get_frame_raw()
+        frame = self.get_raw_frame()
         if(self.motion_detector is not None):
             self.attach_motion_points(frame)
 
         return self.encode_to_jpg(frame)
 
-    def viqs(self,frame):
-        pass
-
-    def get_viqs_concat_frame(self):
-        return self.get_concat_frame(self.viqs)
-
-    ##Using Opencv trackers
-    ###Draw bounding box around
     def track_object(self,frame):
+        '''
+        - Using Opencv trackers
+        - Draw bounding box around
+        '''
         return self.object_tracker.track(frame)
 
     def get_object_tracked_frame(self):
         return self.get_single_frame(self.track_object)
 
     def get_single_frame(self,preprocessfunc):
-        raw_frame = self.attach_fps(self.get_frame_raw())
+        raw_frame = self.attach_fps(self.get_raw_frame())
         preprocessed_frame = self.attach_fps(preprocessfunc(raw_frame))
         return preprocessed_frame
 
     def get_concat_frame(self, preprocessfunc):
-        # raw_frame = self.sp_noise(self.get_frame_raw(),0.0001)
-        raw_frame = self.get_frame_raw()
+        raw_frame = self.get_raw_frame()
         preprocessed_frame = preprocessfunc(raw_frame)
         frame = np.concatenate((raw_frame, preprocessed_frame), axis=1)
         return frame
@@ -255,3 +262,19 @@ class Camera:
                 else:
                     output[i][j] = image[i][j]
         return output
+
+    def detect_vehicle(self, frame, crop_box=((0.5,0.5),(1.0,1.0)), frame_skip=5):
+        result = self.detector.image_inf(frame, crop_box)
+        return result
+    
+if __name__ == '__main__':
+    fps = 24
+    fps_max = 24
+    streaming_time = 100
+
+    camera = Camera(fps_max)
+    camera.run()
+    cv2.imshow("raw_frames",camera.get_raw_frame())
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    

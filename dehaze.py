@@ -1,6 +1,7 @@
 import cv2;
 import math;
 import numpy as np;
+from time import time
 
 def DarkChannel(im,sz):
     b,g,r = cv2.split(im)
@@ -73,21 +74,27 @@ def Recover(im,t,A,tx = 0.1):
     return res
 
 def dehaze(src):
-    I = src.astype('float64')/255
+    I = src/255
     dark = DarkChannel(I,15)
     A = AtmLight(I,dark)
     te = TransmissionEstimate(I,A,15)
     t = TransmissionRefine(src,te)
     J = Recover(I,t,A,0.1)
     J = J*255
-    return J.astype(np.int64)
+    return J
 
 def lowlight_enhance(src):
-	src = 255-src
-	src = dehaze(src)
-	src = 255-src
-	return src
+    start = time()
+    src = 255-src
+    src = dehaze(src)
+    src = 255-src
+    print(f"Enhance time: %.2f" % (time()-start))
+    return src
 
 if __name__ == '__main__':
     img = cv2.imread('images/last.png')
-    print(type(img))
+    img = lowlight_enhance(img)
+    cv2.imwrite("./lowlight_enhance_result.png",img)
+
+
+    
