@@ -12,7 +12,7 @@ fps = 24
 fps_max = 24
 streaming_time = 100
 
-camera = Camera(fps_max,"./sample/video_04.mp4",True)
+camera = Camera(fps_max,"./sample/video_03.mp4",True)
 camera.run()
 
 app = FastAPI()
@@ -58,11 +58,10 @@ async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_fr
             finish_encode = time()
             elapsed = time() - start
             # print(f"Encoding time: %.2f" % (finish_encode - start_encode))
-            print(f"Time elapsed per frame: %.2f" % elapsed)
+            # print(f"Time elapsed per frame: %.2f" % elapsed)
             timelist.append(elapsed)
             if len(timelist) == numframe:
-                print("Mean elapsed per "+ str(numframe) + " frame:" 
-                + str(sum(timelist)/len(timelist)))
+                print(f"Mean elapsed per %d frames: %.2f" % (numframe,sum(timelist)/len(timelist)))
                 print(f"Mean FPS: %.2f" % (1/(sum(timelist)/len(timelist))))
                 timelist = []
 
@@ -112,6 +111,12 @@ async def video_feed_vehicle_detect():
 async def video_feed_vehicle_detect_lowlight_enhance():
     return StreamingResponse(gen(camera, False,camera.get_raw_frame,
     preprocess=[camera.lowlight_enhance],
+    postprocess=[camera.detect_vehicle]), 
+    media_type="multipart/x-mixed-replace; boundary=--frame")
+
+@app.get("/dev")
+async def dev():
+    return StreamingResponse(gen(camera, False,camera.get_raw_frame,
     postprocess=[camera.detect_vehicle]), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 

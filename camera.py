@@ -5,8 +5,11 @@ import threading
 import time
 import random
 from object_tracking.optical_flow_motion_detector import OpticalFlowMotionDetector
-from streaming_data_preprocessing.yolov3_detector import Detector
-
+from track import Track
+from yolov3_detector import Detector
+from sort import *
+from track_manager import TrackManager
+from track import Track
 thread = None
 
 class Camera:
@@ -36,6 +39,10 @@ class Camera:
         self.detector = Detector()
 
         self.default_error_image = cv2.imread("images/500-err.jpg")
+
+        #SORT tracker
+        self.mot_tracker = Sort()
+        self.trackManager = TrackManager()
 
         self.run()
 
@@ -228,16 +235,6 @@ class Camera:
 
         return self.encode_to_jpg(frame)
 
-    def track_object(self,frame):
-        '''
-        - Using Opencv trackers
-        - Draw bounding box around
-        '''
-        return self.object_tracker.track(frame)
-
-    def get_object_tracked_frame(self):
-        return self.get_single_frame(self.track_object)
-
     def get_single_frame(self,preprocessfunc):
         raw_frame = self.attach_fps(self.get_raw_frame())
         preprocessed_frame = self.attach_fps(preprocessfunc(raw_frame))
@@ -263,9 +260,79 @@ class Camera:
                     output[i][j] = image[i][j]
         return output
 
-    def detect_vehicle(self, frame, crop_box=((0.5,0.5),(1.0,1.0)), frame_skip=5):
-        result = self.detector.image_inf(frame, crop_box)
-        return result
+    def track_object(self,bbs):
+        '''
+        - Using SORT trackers
+        - Draw bounding box around
+        - Args:
+            * bbs: A list of bounding boxes in format (x1,y1,x2,y2)
+        - Return:
+            * [bounding_boxes, tracker_id]
+        '''
+        for bb in bbs:
+            bb = np.append(bb,1)
+        track_bbs_ids = self.mot_tracker.update(bbs)
+        # print("camera.py track_object() ",track_bbs_ids)
+        return track_bbs_ids
+    
+    def draw_tracks(self,frame):
+        '''
+            - Draw all tracks in trackManager onto frame
+            - Args:
+                * frame: the frame that is drawn onto
+        '''
+        for track in self.trackManager.tracks:
+            frame = cv2.circle(frame, track.GetCurrentPosition(), radius=2, color=(0, 0, 255), thickness=-1)
+        return frame
+
+    def detect_vehicle(self, frame, crop_box=((0,0.5),(0.6,1.0)), frame_skip=1):
+        x1 = int(crop_box[0][0]*len(frame[0]))
+        y1 = int(crop_box[0][1]*len(frame))
+        x2 = int(crop_box[1][0]*len(frame[0]))
+        y2 = int(crop_box[1][1]*len(frame))
+
+        boxes, scores, pred_classes = self.detector.image_inf(frame, crop_box, frame_skip)
+        frame = self.detector.draw_crop_box(frame,x1,y1,x2,y2)
+        # Run inference, get boxes
+        boxes_to_track = []
+        tracked_boxes_and_ids = []
+        for box in boxes:
+            (x1_box,y1_box),(x2_box,y2_box) = box
+            boxes_to_track.append([x1_box,y1_box,x2_box,y2_box])
+
+        if len(boxes_to_track) > 0:
+            tracked_boxes_and_ids = self.track_object(boxes_to_track)
+
+        if len(tracked_boxes_and_ids) > 0:
+            track_boxes = [row[0:4] for row in tracked_boxes_and_ids]
+            ids = [row[4] for row in tracked_boxes_and_ids]
+            for track_box,id in zip(track_boxes,ids):
+                self.trackManager.HandleNewTrack(track_box, id)
+
+        #Draw all the tracks   
+        for track in self.trackManager.tracks:
+            track_x, track_y = track.GetCurrentPosition()
+            # add the base of the crop box to the track's position
+            track_x += x1
+            track_y += y1
+            frame = cv2.circle(frame,(track_x, track_y), radius=2, color=(0, 0, 255), thickness=-1) 
+
+            #Draw points between track's history
+            for history1, history2 in list(zip(track.history,track.history[1:]))[::2]:
+                history1_x, history1_y = history1[0],history1[1]
+                history2_x, history2_y = history2[0],history2[1]
+                # frame = cv2.circle(frame,(track1_x, track1_y), radius=2, color=(0, 0, 255), thickness=-1)
+                # Offset the bounding box positions
+                history1_x += x1
+                history1_y += y1
+                history2_x += x1
+                history2_y += y1
+                frame = cv2.line(frame,(history1_x,history1_y),(history2_x,history2_y),color=(255, 0, 0))
+        
+        if len(boxes) > 0:
+            frame = self.detector.draw_boxes(frame, boxes, scores, pred_classes, x1, y1)
+            
+        return frame
     
 if __name__ == '__main__':
     fps = 24

@@ -98,11 +98,16 @@ class Detector:
             * boxes, scores, classes
         '''
         input_details, output_details, net_input_shape = self.get_interpreter_details()
+        # print("yolov3_detector.py inference() output_details")
+        # print(output_details)
         img_orig_shape = img.shape
         # Crop frame to network input shape
         img = letterbox_image(img.copy().astype('uint8'), (416, 416))
         # Add batch dimension
         img = np.expand_dims(img, 0)
+        
+        # For the yolov4 to work
+        # img = np.array(img, dtype='int8')
 
         if not self.quantization:
             # Normalize image from 0 to 1
@@ -111,12 +116,12 @@ class Detector:
         # Set input tensor
         self.interpreter.set_tensor(input_details[0]['index'], img)
 
-        # start = time()
+        start = time()
 
         # Run model
         self.interpreter.invoke()
 
-        # inf_time = time() - start
+        inf_time = time() - start
         # print(f"Net forward-pass time: {inf_time*1000} ms.")
         # Retrieve outputs of the network
         out1 = self.interpreter.get_tensor(output_details[0]['index'])
@@ -130,12 +135,12 @@ class Detector:
             o2_scale, o2_zero = output_details[1]['quantization']
             out2 = (out2.astype(np.float32) - o2_zero) * o2_scale
         # Get boxes from outputs of network
-        # start = time()
+        start = time()
         _boxes1, _scores1, _classes1 = featuresToBoxes(out1, self.anchors[[3, 4, 5]], 
                 len(self.classes), net_input_shape, img_orig_shape, self.threshold)
         _boxes2, _scores2, _classes2 = featuresToBoxes(out2, self.anchors[[1, 2, 3]], 
                 len(self.classes), net_input_shape, img_orig_shape, self.threshold)
-        # inf_time = time() - start
+        inf_time = time() - start
         # print(f"Box computation time: {inf_time*1000} ms.") 
 
         # This is needed to be able to append nicely when the output layers don't
@@ -154,7 +159,6 @@ class Detector:
         classes = np.append(_classes1, _classes2, axis=0)
         if len(boxes) > 0:
             boxes, scores, classes = nms_boxes(boxes, scores, classes)
-
         return boxes, scores, classes
 
     def draw_boxes(self, image, boxes, scores, classes,offset_x=0,offset_y=0):
@@ -219,6 +223,8 @@ class Detector:
         textpos=(0,50)
         cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
 
+        return image
+
     def draw_crop_box(self,image,x1,y1,x2,y2):
         '''
         - Draw the rectangular crop region in the image
@@ -227,6 +233,7 @@ class Detector:
             * x1, x2, y1, y2: Coordinate of topleft and botright of the crop region
         '''
         cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 2)
+        return image
 
     def get_interpreter_details(self):
         # Get input and output tensor details
@@ -236,15 +243,17 @@ class Detector:
 
         return input_details, output_details, input_shape
 
-    def image_inf(self,img,crop_box=None, frame_skip=1):
+    def image_inf(self,img,crop_box=None, frame_skip=1,selected_classes = ["car","motorbike"]):
         '''
         Make inference on an image
-        * Args:
-            - img: Input image
-            - crop_box: Specify a region on image to do inference. Format ((x1,y1),(x2,y2)). Value range: 0-100
-        * Return:
-            - img: The output image with prediction drawn on it
+        - Args:
+            * img: Input image
+            * crop_box: Specify a region on image to do inference. Format ((x1,y1),(x2,y2)). Value range: 0-100
+        - Return:
+            * (boxes, scores, pred_classes)
         '''
+        # print("yolov3_detector.py image_inf() ")
+
         n_classes = len(self.classes)
         img = img.copy()
         
@@ -277,10 +286,17 @@ class Detector:
             self.last_frame_output = (boxes, scores, pred_classes)
             self.skipped_frame_count = 0
 
-        # Run inference, get boxes
-        self.draw_crop_box(img,x1,y1,x2,y2)
-        if len(boxes) > 0:
-            self.draw_boxes(img, boxes, scores, pred_classes, x1, y1)
-        
-        return img
+        # Get the boxes of selected class
+        result_list = [(box, score, pred_class) for (box, score, pred_class) in zip(boxes, scores,pred_classes) if self.classes[int(pred_class)] in selected_classes]
+
+        if(len(result_list)>0):
+            boxes = [row[0] for row in result_list]
+            scores = [row[1] for row in result_list]
+            pred_classes = [row[2] for row in result_list]
+
+        else:
+            boxes = []
+            scores = []
+            pred_classes = []
+        return boxes, scores, pred_classes
     
