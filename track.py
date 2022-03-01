@@ -19,7 +19,15 @@ class Track:
     def Update(self, newPosition):
         x1,y1,x2,y2 = newPosition
         self.history.append((int((x1+x2)/2),int((y1+y2)/2)))
+        if len(self.history) >= 1500:
+            self.history = self.history[1:]
 
     def GetCurrentPosition(self):
         return self.history[len(self.history)-1]
+    
+    def Activate(self):
+        self.isActive = True
+    
+    def Deactivate(self):
+        self.isActive = False
 

@@ -10,9 +10,9 @@ import traceback
 
 fps = 24
 fps_max = 24
-streaming_time = 100
+streaming_time = 1000
 
-camera = Camera(fps_max,"./sample/video_03.mp4",True)
+camera = Camera(fps_max,"./sample/video_05.mp4",True)
 camera.run()
 
 app = FastAPI()
@@ -23,11 +23,11 @@ async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_fr
     timelist = []
     numframe = 10
     start_stream = time()
-    frame = None
     
     while True:
         start = time()
         try:
+            frame = None
             # Stop streaming after 60 seconds.
             counter += 1
             if (time() - start_stream) > streaming_time:
@@ -47,12 +47,11 @@ async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_fr
                 frame = postprocess_func(frame)
             # print(f"Postprocess time: %.2f (s)" % (time()-start_postprocess))
 
-        except:
-            traceback.print_exc()
-        finally:
             start_encode = time()
             if frame is None:
-                frame = camera.encode_to_png(camera.default_error_image)
+                print("camera.py frame is None. Default to error image")
+                frame = camera.encode_to_jpg(camera.default_error_image)
+                continue
             else:
                 frame = camera.encode_to_jpg(frame)
             finish_encode = time()
@@ -67,6 +66,8 @@ async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_fr
 
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n') 
+        except:
+            traceback.print_exc()
         
 async def gen_sample():
     counter = 0
@@ -117,6 +118,7 @@ async def video_feed_vehicle_detect_lowlight_enhance():
 @app.get("/dev")
 async def dev():
     return StreamingResponse(gen(camera, False,camera.get_raw_frame,
+    preprocess=[],
     postprocess=[camera.detect_vehicle]), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 

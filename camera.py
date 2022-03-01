@@ -8,6 +8,7 @@ from object_tracking.optical_flow_motion_detector import OpticalFlowMotionDetect
 from track import Track
 from yolov3_detector import Detector
 from sort import *
+from utils import *
 from track_manager import TrackManager
 from track import Track
 thread = None
@@ -43,6 +44,7 @@ class Camera:
         #SORT tracker
         self.mot_tracker = Sort()
         self.trackManager = TrackManager()
+        self.marker_lines = []
 
         self.run()
 
@@ -67,6 +69,7 @@ class Camera:
                     self.frames = self.frames[1:]
                 self.frames.append(img)
             elif(self.allow_loop):
+                print("camera.py  End of Video. Loop from start")
                 self.source.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
             time.sleep(dt)
@@ -89,7 +92,9 @@ class Camera:
         return cv2.imencode('.png', frame)[1].tobytes()
 
     def encode_to_jpg(self, frame):
+        print(type(frame))
         return cv2.imencode('.jpg', frame)[1].tobytes()
+
 
     def get_frame(self, _bytes=True):
         if len(self.frames) > 0:
@@ -170,6 +175,12 @@ class Camera:
 
     def median_blur(self,frame):
         return cv2.medianBlur(frame,3)
+
+    def gaussian_blur(self,frame):
+        return cv2.GaussianBlur(frame,(5,5),0)
+    
+    def sharpen(self,frame):
+        return 2*frame - self.gaussian_blur(frame)
 
     def get_median_blur_concat_frame(self):
         return self.get_concat_frame(self.median_blur)    
@@ -285,11 +296,10 @@ class Camera:
             frame = cv2.circle(frame, track.GetCurrentPosition(), radius=2, color=(0, 0, 255), thickness=-1)
         return frame
 
-    def detect_vehicle(self, frame, crop_box=((0,0.5),(0.6,1.0)), frame_skip=1):
-        x1 = int(crop_box[0][0]*len(frame[0]))
-        y1 = int(crop_box[0][1]*len(frame))
-        x2 = int(crop_box[1][0]*len(frame[0]))
-        y2 = int(crop_box[1][1]*len(frame))
+    def detect_vehicle(self, frame, crop_box=((0.0,0.4),(1,1)), frame_skip=2):
+        x1,y1 = denormalize_coordinate(frame, crop_box[0][0], crop_box[0][1])
+        x2,y2 = denormalize_coordinate(frame,crop_box[1][0],crop_box[1][1])
+        frame = frame.copy()
 
         boxes, scores, pred_classes = self.detector.image_inf(frame, crop_box, frame_skip)
         frame = self.detector.draw_crop_box(frame,x1,y1,x2,y2)
@@ -303,36 +313,40 @@ class Camera:
         if len(boxes_to_track) > 0:
             tracked_boxes_and_ids = self.track_object(boxes_to_track)
 
-        if len(tracked_boxes_and_ids) > 0:
-            track_boxes = [row[0:4] for row in tracked_boxes_and_ids]
-            ids = [row[4] for row in tracked_boxes_and_ids]
-            for track_box,id in zip(track_boxes,ids):
-                self.trackManager.HandleNewTrack(track_box, id)
+        self.trackManager.HandleNewTracks(tracked_boxes_and_ids)
 
         #Draw all the tracks   
         for track in self.trackManager.tracks:
-            track_x, track_y = track.GetCurrentPosition()
-            # add the base of the crop box to the track's position
-            track_x += x1
-            track_y += y1
-            frame = cv2.circle(frame,(track_x, track_y), radius=2, color=(0, 0, 255), thickness=-1) 
+            if track.isActive :
+                track_x, track_y = track.GetCurrentPosition()
+                # add the base of the crop box to the track's position
+                track_x += x1
+                track_y += y1
+                frame = cv2.circle(frame,(track_x, track_y), radius=2, color=(0, 0, 255), thickness=-1) 
 
-            #Draw points between track's history
-            for history1, history2 in list(zip(track.history,track.history[1:]))[::2]:
-                history1_x, history1_y = history1[0],history1[1]
-                history2_x, history2_y = history2[0],history2[1]
-                # frame = cv2.circle(frame,(track1_x, track1_y), radius=2, color=(0, 0, 255), thickness=-1)
-                # Offset the bounding box positions
-                history1_x += x1
-                history1_y += y1
-                history2_x += x1
-                history2_y += y1
-                frame = cv2.line(frame,(history1_x,history1_y),(history2_x,history2_y),color=(255, 0, 0))
+                #Draw lines between track's history
+                for history1, history2 in list(zip(track.history,track.history[1:]))[::2]:
+                    history1_x, history1_y = history1[0],history1[1]
+                    history2_x, history2_y = history2[0],history2[1]
+                    # frame = cv2.circle(frame,(track1_x, track1_y), radius=2, color=(0, 0, 255), thickness=-1)
+                    # Offset the bounding box positions
+                    history1_x += x1
+                    history1_y += y1
+                    history2_x += x1
+                    history2_y += y1
+                    frame = cv2.line(frame,(history1_x,history1_y),(history2_x,history2_y),color=(255, 0, 0),thickness=2)
         
         if len(boxes) > 0:
             frame = self.detector.draw_boxes(frame, boxes, scores, pred_classes, x1, y1)
-            
+
         return frame
+    
+    def draw_marker_line(self,frame):
+        for markerline in self.marker_lines:
+            x1,y1 = markerline[0]
+            x2,y2 = markerline[1]
+            frame = cv2.line(frame,(x1,y1),(x2,y2),color=(255, 0, 0),thickness=2)
+
     
 if __name__ == '__main__':
     fps = 24

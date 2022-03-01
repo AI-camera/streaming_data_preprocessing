@@ -122,7 +122,7 @@ def nms_boxes(boxes, scores, classes):
 
             other_box = boxes[j]
             box_iou = iou(best_box, other_box)
-            if box_iou > 0.15:
+            if box_iou > 0.05:
                 to_remove.append(j)
 
         if len(to_remove) == 0:
@@ -162,4 +162,15 @@ def imcrop(img,x1,y1,x2,y2):
     '''
     return img[y1:y2,x1:x2]
 
+def ccw(A,B,C):
+    return (C.y-A.y) * (B.x-A.x) > (B.y-A.y) * (C.x-A.x)
+
+# Return true if line segments AB and CD intersect
+def intersect(A,B,C,D):
+    return ccw(A,C,D) != ccw(B,C,D) and ccw(A,B,C) != ccw(A,B,D)
+
+def denormalize_coordinate(frame,coordinate_x, coordinate_y):
+    coordinate_x = int(coordinate_x*len(frame[0]))
+    coordinate_y = int(coordinate_y*len(frame))
+    return coordinate_x, coordinate_y
 
