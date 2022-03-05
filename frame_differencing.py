@@ -1,8 +1,5 @@
 import numpy as np
-import cv2,time,pandas
-
-from datetime import datetime
-
+import cv2,pandas
 static_back = None
 time = []
 
