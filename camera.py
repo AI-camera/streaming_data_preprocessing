@@ -16,13 +16,12 @@ thread = None
 class Camera:
     def __init__(self, fps=24, video_source=0, allow_loop=False):
         """
-        - fps: Rate at which frames are read from source
-        - video_source: The source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
+        - fps: Rate at which frames are read from video_source
+        - video_source: The video_source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
         - allow_loop: Set to True to allow looping on video files. This turns those files into endless stream
         """
         self.fps = fps
-        self.video_source = video_source
-        self.source = cv2.VideoCapture(self.video_source)
+        self.video_source = cv2.VideoCapture(video_source)
         # We want a max of 5s history to be stored, thats 5s*fps
         self.max_frames = 5*self.fps
         self.frames = []
@@ -34,17 +33,31 @@ class Camera:
         self.start_time = time.time()
         self.end_tine = time.time()
 
-        self.sizeStr = str(int(self.source.get(cv2.CAP_PROP_FRAME_WIDTH))) + 'x' + str(int(self.source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        self.sizeStrConcat = str(int(self.source.get(cv2.CAP_PROP_FRAME_WIDTH)*2)) + 'x' + str(int(self.source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        self.sizeStr = str(int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))) + 'x' + str(int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        self.sizeStrConcat = str(int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH)*2)) + 'x' + str(int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.allow_loop = allow_loop
         self.detector = Detector()
 
         self.default_error_image = cv2.imread("images/500-err.jpg")
 
-        #SORT tracker
+        # SORT tracker
         self.mot_tracker = Sort()
         self.trackManager = TrackManager()
-        self.marker_lines = []
+
+        self.markerlines_dict = dict()
+
+        # Marker lines for video 05
+        self.markerlines_dict["L1"] = ((0.28,0.68),(0.54,0.57))
+        self.markerlines_dict["L2"] = ((0.62,0.55),(0.93,0.57))
+        self.markerlines_dict["L3"] = ((0.98,0.58),(0.94,0.82))
+        self.markerlines_dict["L4"] = ((0.29,0.73),(0.89,0.88))
+
+        # Define video file output
+        width = int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(self.video_source.get(cv2.CAP_PROP_FPS))
+        codec = cv2.VideoWriter_fourcc(*'mp4v')
+        self.out = cv2.VideoWriter("./output/output.mp4", codec, fps, (width, height))
 
         self.run()
 
@@ -59,18 +72,18 @@ class Camera:
 
     def _capture_loop(self):
         dt = 1/self.fps
-        v, img = self.source.read()
+        v, img = self.video_source.read()
         self.first_frame_initialize(img)
 
         while self.isrunning:
-            v, img = self.source.read()
+            v, img = self.video_source.read()
             if v:
                 if len(self.frames) == self.max_frames:
                     self.frames = self.frames[1:]
                 self.frames.append(img)
             elif(self.allow_loop):
                 print("camera.py  End of Video. Loop from start")
-                self.source.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                self.video_source.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
             time.sleep(dt)
             self.regulate_stream_fps()
@@ -92,7 +105,6 @@ class Camera:
         return cv2.imencode('.png', frame)[1].tobytes()
 
     def encode_to_jpg(self, frame):
-        print(type(frame))
         return cv2.imencode('.jpg', frame)[1].tobytes()
 
 
@@ -296,9 +308,9 @@ class Camera:
             frame = cv2.circle(frame, track.GetCurrentPosition(), radius=2, color=(0, 0, 255), thickness=-1)
         return frame
 
-    def detect_vehicle(self, frame, crop_box=((0.0,0.4),(1,1)), frame_skip=2):
-        x1,y1 = denormalize_coordinate(frame, crop_box[0][0], crop_box[0][1])
-        x2,y2 = denormalize_coordinate(frame,crop_box[1][0],crop_box[1][1])
+    def detect_vehicle(self, frame, crop_box=((0.0,0.4),(1,1)), frame_skip=3):
+        x1,y1 = denormalize_coordinate(frame,crop_box[0])
+        x2,y2 = denormalize_coordinate(frame,crop_box[1])
         frame = frame.copy()
 
         boxes, scores, pred_classes = self.detector.image_inf(frame, crop_box, frame_skip)
@@ -308,54 +320,86 @@ class Camera:
         tracked_boxes_and_ids = []
         for box in boxes:
             (x1_box,y1_box),(x2_box,y2_box) = box
-            boxes_to_track.append([x1_box,y1_box,x2_box,y2_box])
+            #Put offset x1 and y1 to match crop box
+            boxes_to_track.append([x1_box+x1,y1_box+y1,x2_box+x1,y2_box+y1])
 
         if len(boxes_to_track) > 0:
             tracked_boxes_and_ids = self.track_object(boxes_to_track)
 
-        self.trackManager.HandleNewTracks(tracked_boxes_and_ids)
+        denormalized_markerlines_dict = self.markerlines_dict.copy()
+        for key in denormalized_markerlines_dict.keys():
+            coordinate1 = denormalized_markerlines_dict[key][0]
+            coordinate2 = denormalized_markerlines_dict[key][1]
+            coordinate1 = denormalize_coordinate(frame, coordinate1)
+            coordinate2 = denormalize_coordinate(frame, coordinate2)
+            denormalized_markerlines_dict[key] = (coordinate1, coordinate2)
+
+        self.trackManager.HandleNewTracks(tracked_boxes_and_ids,denormalized_markerlines_dict)
 
         #Draw all the tracks   
         for track in self.trackManager.tracks:
             if track.isActive :
                 track_x, track_y = track.GetCurrentPosition()
-                # add the base of the crop box to the track's position
-                track_x += x1
-                track_y += y1
                 frame = cv2.circle(frame,(track_x, track_y), radius=2, color=(0, 0, 255), thickness=-1) 
-
-                #Draw lines between track's history
-                for history1, history2 in list(zip(track.history,track.history[1:]))[::2]:
+                
+                text = 'Crossed: '
+                for markerline in track.crossedMarkerlineIDs:
+                    text += markerline
+                    text += ','
+                cv2.putText(frame, text, (track_x, track_y), cv2.FONT_HERSHEY_DUPLEX,0.45, (0,255,0), 1, cv2.LINE_AA)
+                # Draw lines between track's history
+                for i in range(len(track.history)-1):
+                    history1 = track.history[i]
+                    history2 = track.history[i+1]
                     history1_x, history1_y = history1[0],history1[1]
                     history2_x, history2_y = history2[0],history2[1]
-                    # frame = cv2.circle(frame,(track1_x, track1_y), radius=2, color=(0, 0, 255), thickness=-1)
-                    # Offset the bounding box positions
-                    history1_x += x1
-                    history1_y += y1
-                    history2_x += x1
-                    history2_y += y1
                     frame = cv2.line(frame,(history1_x,history1_y),(history2_x,history2_y),color=(255, 0, 0),thickness=2)
         
+        self.draw_marker_lines(frame)
+
         if len(boxes) > 0:
             frame = self.detector.draw_boxes(frame, boxes, scores, pred_classes, x1, y1)
 
         return frame
     
-    def draw_marker_line(self,frame):
-        for markerline in self.marker_lines:
-            x1,y1 = markerline[0]
-            x2,y2 = markerline[1]
-            frame = cv2.line(frame,(x1,y1),(x2,y2),color=(255, 0, 0),thickness=2)
+    def draw_marker_lines(self,frame):
+        '''Loop over the marker line dictionary to get each marker line'''
+        color=(0, 255, 255)
+        for key in self.markerlines_dict:
+            markerline = self.markerlines_dict[key]
+            x1,y1 = denormalize_coordinate(frame, markerline[0])
+            x2,y2 = denormalize_coordinate(frame, markerline[1])
+            frame = cv2.line(frame,(x1,y1),(x2,y2),color=color,thickness=2)
+            frame = cv2.putText(frame, key, (x1,y1-3), cv2.FONT_HERSHEY_DUPLEX,
+                    0.45, color, 1, cv2.LINE_AA)
+        return frame
+    
+    def write_frame_to_output_file(self,frame):
+        '''Write frame to out.mp4'''
+        self.out.write(frame)
 
     
 if __name__ == '__main__':
     fps = 24
     fps_max = 24
-    streaming_time = 100
+    streaming_time = 1000
 
-    camera = Camera(fps_max)
+    camera = Camera(fps_max,"./sample/video_05.mp4",True)
     camera.run()
-    cv2.imshow("raw_frames",camera.get_raw_frame())
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    i = 0
+    while True:
+        frame = camera.get_raw_frame()
+        if frame is None:
+            continue
+        
+        if i%100 == 0:
+            print("camera.py executing " + str(i))
+        i +=1
+        if i > 2000:
+            break
+        
+        frame = camera.detect_vehicle(frame)
+        camera.write_frame_to_output_file(frame)
+
+    camera.out.release()
     

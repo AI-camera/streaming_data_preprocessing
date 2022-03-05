@@ -93,7 +93,6 @@ def get_classes(path):
 
 def nms_boxes(boxes, scores, classes):
     present_classes = np.unique(classes)
-
     assert(boxes.shape[0] == scores.shape[0])
     assert(boxes.shape[0] == classes.shape[0])
 
@@ -122,18 +121,18 @@ def nms_boxes(boxes, scores, classes):
 
             other_box = boxes[j]
             box_iou = iou(best_box, other_box)
-            if box_iou > 0.05:
+            if box_iou > 0.25:
                 to_remove.append(j)
 
+        i += 1
         if len(to_remove) == 0:
-            break
+            continue
         else:
             # Remove boxes
             for r in to_remove[::-1]:
                 del boxes[r]
                 del scores[r]
                 del classes[r]
-                i += 1
 
     return boxes[:MAX_BOXES], scores[:MAX_BOXES], classes[:MAX_BOXES]
 
@@ -163,14 +162,44 @@ def imcrop(img,x1,y1,x2,y2):
     return img[y1:y2,x1:x2]
 
 def ccw(A,B,C):
-    return (C.y-A.y) * (B.x-A.x) > (B.y-A.y) * (C.x-A.x)
+    return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
 
-# Return true if line segments AB and CD intersect
 def intersect(A,B,C,D):
+    '''Return true if line segments AB and CD intersect'''
     return ccw(A,C,D) != ccw(B,C,D) and ccw(A,B,C) != ccw(A,B,D)
 
-def denormalize_coordinate(frame,coordinate_x, coordinate_y):
+def denormalize_coordinate(frame,coordinate):
+    '''
+    * Denormalize a coordinate by multiply it with the frame's shape
+    * Returns integer
+    '''
+    coordinate_x, coordinate_y = coordinate
     coordinate_x = int(coordinate_x*len(frame[0]))
     coordinate_y = int(coordinate_y*len(frame))
     return coordinate_x, coordinate_y
 
+def denormalize_coordinates(frame,coordinates):
+    '''
+    * Denormalize multple coordinates by multiply them with the frame's shape
+    * Returns integer
+    '''
+    result = []
+    for coordinate in coordinates:
+        result.append(denormalize_coordinate(frame, coordinate))
+    return result
+
+def block_distance(point1, point2):
+    x1,y1 = point1
+    x2,y2 = point2
+    result = x1-y1+x2-y2
+    if result <0:
+        result = -result
+    return result
+
+def point_line_distance(point,linePoint1, linePoint2):
+    '''Return distance between line and point'''
+    p1 = np.array(linePoint1)
+    p2 = np.array(linePoint2)
+    p3 = np.array(point)
+    print(np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1))
+    return np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1)
