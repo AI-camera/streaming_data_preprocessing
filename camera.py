@@ -1,20 +1,36 @@
+from os import stat_result
 from dehaze import lowlight_enhance
 import cv2
 import numpy as np
 import threading
 import time
 import random
-from object_tracking.optical_flow_motion_detector import OpticalFlowMotionDetector
+from object_tracking.motion_detector import OpticalFlowMotionDetector
 from track import Track
-from yolov3_detector import Detector
+from yolov3_detector import Detector as YOLOV3Detector
+from mobileDet_detector import Detector as MobileDetDetector
 from sort import *
 from utils import *
 from track_manager import TrackManager
 from track import Track
 thread = None
 
+VIDEO_05_MARKERLINES = dict()
+VIDEO_05_MARKERLINES["L1"] = ((0.28,0.68),(0.54,0.57))
+VIDEO_05_MARKERLINES["L2"] = ((0.62,0.55),(0.93,0.57))
+VIDEO_05_MARKERLINES["L3"] = ((0.98,0.58),(0.94,0.82))
+VIDEO_05_MARKERLINES["L4"] = ((0.29,0.73),(0.89,0.88))
+VIDEO_05_CROPBOX = ((0.2,0.4),(1,1))
+AKIHABARA_01_MARKERLINES = dict()
+AKIHABARA_01_MARKERLINES["L1"] = ((0.28,0.68),(0.54,0.57))
+AKIHABARA_01_MARKERLINES["L2"] = ((0.62,0.55),(0.93,0.57))
+AKIHABARA_01_MARKERLINES["L3"] = ((0.98,0.58),(0.94,0.82))
+AKIHABARA_01_MARKERLINES["L4"] = ((0.29,0.73),(0.89,0.88))
+AKIHABARA_01_CROPBOX = ((0.2,0.4),(1,1))
+MOTION_THRESHOLD = 3
+
 class Camera:
-    def __init__(self, fps=24, video_source=0, allow_loop=False):
+    def __init__(self, fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector()):
         """
         - fps: Rate at which frames are read from video_source
         - video_source: The video_source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
@@ -22,9 +38,10 @@ class Camera:
         """
         self.fps = fps
         self.video_source = cv2.VideoCapture(video_source)
-        # We want a max of 5s history to be stored, thats 5s*fps
-        self.max_frames = 5*self.fps
+        # We want a max of 3s history to be stored, thats 3s*fps
+        self.max_frames = 3*self.fps
         self.frames = []
+        self.lowlight_enhanced_frames = []
         self.isrunning = False
         self.stream_fps = fps
         self.tick = 0
@@ -36,21 +53,21 @@ class Camera:
         self.sizeStr = str(int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))) + 'x' + str(int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.sizeStrConcat = str(int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH)*2)) + 'x' + str(int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.allow_loop = allow_loop
-        self.detector = Detector()
+
+        self.detector = detector
 
         self.default_error_image = cv2.imread("images/500-err.jpg")
+
+        # Optical Flow motion detector
+        self.motion_detector = OpticalFlowMotionDetector()
 
         # SORT tracker
         self.mot_tracker = Sort()
         self.trackManager = TrackManager()
 
+        # Marker lines dictionary
         self.markerlines_dict = dict()
-
-        # Marker lines for video 05
-        self.markerlines_dict["L1"] = ((0.28,0.68),(0.54,0.57))
-        self.markerlines_dict["L2"] = ((0.62,0.55),(0.93,0.57))
-        self.markerlines_dict["L3"] = ((0.98,0.58),(0.94,0.82))
-        self.markerlines_dict["L4"] = ((0.29,0.73),(0.89,0.88))
+        # self.markerlines_dict = VIDEO_05_MARKERLINES
 
         # Define video file output
         width = int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -63,17 +80,19 @@ class Camera:
 
     def run(self):
         global thread
+        global subthread1
         thread = threading.Thread(target=self._capture_loop,daemon=True)
+        subthread1 = threading.Thread(target=self._lowlight_enhance_loop,daemon=True)
         if not self.isrunning:
             self.isrunning = True
             thread.start()
+            # subthread1.start()
         else:
             print("A camera thread is running already!")
 
     def _capture_loop(self):
         dt = 1/self.fps
         v, img = self.video_source.read()
-        self.first_frame_initialize(img)
 
         while self.isrunning:
             v, img = self.video_source.read()
@@ -87,9 +106,15 @@ class Camera:
             
             time.sleep(dt)
             self.regulate_stream_fps()
-
-    def first_frame_initialize(self,first_frame):
-        self.motion_detector = OpticalFlowMotionDetector(first_frame)
+    
+    def _lowlight_enhance_loop(self):
+        while self.isrunning:
+            frame = self.get_raw_frame()
+            if frame is not None:
+                if len(self.lowlight_enhanced_frames) == self.max_frames:
+                    self.lowlight_enhanced_frames = self.lowlight_enhanced_frames[1:]
+                frame = self.lowlight_enhance(frame)
+                self.lowlight_enhanced_frames.append(frame)
 
     def stop(self):
         self.isrunning = False
@@ -106,7 +131,6 @@ class Camera:
 
     def encode_to_jpg(self, frame):
         return cv2.imencode('.jpg', frame)[1].tobytes()
-
 
     def get_frame(self, _bytes=True):
         if len(self.frames) > 0:
@@ -148,13 +172,13 @@ class Camera:
                 self.fps_lock = False
             frame_raw = self.get_raw_frame()
             fps_adjustment = np.ceil(
-                self.motion_detector.detect(frame_raw) % self.fps)
+                self.motion_detector.detect_optical_flow(frame_raw) % self.fps)
             if(not self.fps_lock):
                 self.stream_fps = fps_adjustment
 
             # Bump the fps up if there's motion
             # print(fps_adjustment)
-            if(fps_adjustment > 3):
+            if(fps_adjustment > MOTION_THRESHOLD):
                 self.stream_fps = self.fps
                 self.fps_lock = True
                 self.start_time = time.time()
@@ -229,6 +253,10 @@ class Camera:
         result = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
 
         return result
+
+    def get_lowlight_enhanced_frame_from_buffer(self):
+        if len(self.lowlight_enhanced_frames) > 0:
+            return self.lowlight_enhanced_frames[-1]
 
     def get_lowlight_enhance_concat_frame(self):
         return self.get_concat_frame(self.lowlight_enhance)
@@ -308,13 +336,17 @@ class Camera:
             frame = cv2.circle(frame, track.GetCurrentPosition(), radius=2, color=(0, 0, 255), thickness=-1)
         return frame
 
-    def detect_vehicle(self, frame, crop_box=((0.0,0.4),(1,1)), frame_skip=3):
+    def detect_object(self, frame, crop_box=((0.0,0.0),(1,1)), frame_skip=0, motion_only = True):
+        if crop_box[0][0] >= crop_box[1][0] or crop_box[0][1] >= crop_box[1][1]:
+            print("The cropbox is invalid! Cropbox should be tuple (topleftpoint,botrightpoint)")
         x1,y1 = denormalize_coordinate(frame,crop_box[0])
         x2,y2 = denormalize_coordinate(frame,crop_box[1])
-        frame = frame.copy()
 
-        boxes, scores, pred_classes = self.detector.image_inf(frame, crop_box, frame_skip)
-        frame = self.detector.draw_crop_box(frame,x1,y1,x2,y2)
+        boxes, scores, pred_classes = self.detector.detect(frame, crop_box, frame_skip,
+            selected_classes = ["car","motorbike"])
+
+        frame = self.draw_marker_lines(frame)
+        frame = self.draw_crop_box(frame,x1,y1,x2,y2)
         # Run inference, get boxes
         boxes_to_track = []
         tracked_boxes_and_ids = []
@@ -374,6 +406,16 @@ class Camera:
                     0.45, color, 1, cv2.LINE_AA)
         return frame
     
+    def draw_crop_box(self,image,x1,y1,x2,y2):
+        '''
+        - Draw the rectangular crop region in the image
+        - Args:
+            * image
+            * x1, x2, y1, y2: Coordinate of topleft and botright of the crop region
+        '''
+        cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 2)
+        return image
+    
     def write_frame_to_output_file(self,frame):
         '''Write frame to out.mp4'''
         self.out.write(frame)
@@ -384,21 +426,26 @@ if __name__ == '__main__':
     fps_max = 24
     streaming_time = 1000
 
-    camera = Camera(fps_max,"./sample/video_05.mp4",True)
+    camera = Camera(fps_max,"./sample/video_03.mp4",True,detector=MobileDetDetector())
     camera.run()
     i = 0
+    start = time.time()
     while True:
+        
         frame = camera.get_raw_frame()
         if frame is None:
             continue
-        
-        if i%100 == 0:
+
+        if i%100 == 0 and i >0:
             print("camera.py executing " + str(i))
+            print("FPS", str(100/(time.time()-start)))
+            start = time.time()
+
         i +=1
-        if i > 2000:
+        if i > 3000:
             break
         
-        frame = camera.detect_vehicle(frame)
+        frame = camera.detect_object(frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3)
         camera.write_frame_to_output_file(frame)
 
     camera.out.release()

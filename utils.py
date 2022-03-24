@@ -92,7 +92,11 @@ def get_classes(path):
     return classes
 
 def nms_boxes(boxes, scores, classes):
-    present_classes = np.unique(classes)
+    # present_classes = np.unique(classes)
+    if type(boxes) is list:
+        boxes = np.asarray(boxes)
+        scores = np.asarray(scores)
+        classes = np.asarray(classes)
     assert(boxes.shape[0] == scores.shape[0])
     assert(boxes.shape[0] == classes.shape[0])
 
@@ -105,7 +109,7 @@ def nms_boxes(boxes, scores, classes):
     # Run nms for each class
     i = 0
     while True:
-        if len(boxes) == 1 or i >= len(boxes) or i == MAX_BOXES:
+        if len(boxes) == 1 or i >= len(boxes) or i >= MAX_BOXES:
             break
 
         # Get box with highest score

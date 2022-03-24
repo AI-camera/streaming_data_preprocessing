@@ -7,6 +7,7 @@ from time import time
 from utils import *
 import string
 import pytesseract
+import dehaze
 
 EDGETPU_SHARED_LIB = "libedgetpu.so.1"
 alphabets = string.digits + string.ascii_lowercase
@@ -85,7 +86,7 @@ class Detector:
         text = pytesseract.image_to_string(invert, config='--psm 6')
         return text
 
-    def inference(self, img):
+    def inference(self, img, preprocess_functions=[]):
         '''
         Make inference base on an interpreter
         - Args:
@@ -103,6 +104,16 @@ class Detector:
         img_orig_shape = img.shape
         # Crop frame to network input shape
         img = letterbox_image(img.copy().astype('uint8'), (416, 416))
+
+        # performs post-reshape preprocessing
+        try:
+            if preprocess_functions is not None:
+                for preprocess_function in preprocess_functions:
+                    img = preprocess_function(img)
+        except:
+            print("yolov3_detector.py Something is wrong with post-reshape preprocessing")
+
+        img = img.astype('uint8')
         # Add batch dimension
         img = np.expand_dims(img, 0)
         
@@ -225,16 +236,6 @@ class Detector:
 
         return image
 
-    def draw_crop_box(self,image,x1,y1,x2,y2):
-        '''
-        - Draw the rectangular crop region in the image
-        - Args:
-            * image
-            * x1, x2, y1, y2: Coordinate of topleft and botright of the crop region
-        '''
-        cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 2)
-        return image
-
     def get_interpreter_details(self):
         # Get input and output tensor details
         input_details = self.interpreter.get_input_details()
@@ -243,12 +244,14 @@ class Detector:
 
         return input_details, output_details, input_shape
 
-    def image_inf(self,img,crop_box=None, frame_skip=1,selected_classes = ["car","motorbike"]):
+    def detect(self,img,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],prepocess_functions=[]):
         '''
         Make inference on an image
         - Args:
             * img: Input image
             * crop_box: Specify a region on image to do inference. Format ((x1,y1),(x2,y2)). Value range: 0-100
+            * frame_skip: Detect once per frame_skip value (frame_skip = 0 means no skipping)
+            * selected_classes: Classes that are to be detected
         - Return:
             * (boxes, scores, pred_classes)
         '''
@@ -258,23 +261,8 @@ class Detector:
         img = img.copy()
         
         #Crop the image using (x1,y1) and (x2,y2)
-        #If crop box is not specified, take the whole image
-        if crop_box is None:
-            x1 = 0
-            y1 = 0
-            x2 = len(img[0])
-            y2 = len(img)
-        else:
-            x1 = int(crop_box[0][0]*len(img[0]))
-            y1 = int(crop_box[0][1]*len(img))
-            x2 = int(crop_box[1][0]*len(img[0]))
-            y2 = int(crop_box[1][1]*len(img))
-        if any((x1,x2,y1,y2))<0 or any((x1,x2,y1,y2))>1:
-            print("Image cropbox value must be between 0 and 1")
-            return None
-        if img is None:
-            print("Can't make inference on None object")
-            return None
+        x1,y1 = denormalize_coordinate(img,crop_box[0])
+        x2,y2 = denormalize_coordinate(img,crop_box[1])
         cropped_img = imcrop(img,x1,y1,x2,y2)
         
         # Skip *frame_skip* frames per 1 infered frame
@@ -282,7 +270,7 @@ class Detector:
             boxes, scores, pred_classes = self.last_frame_output
             self.skipped_frame_count +=1
         else:
-            boxes, scores, pred_classes = self.inference(cropped_img)
+            boxes, scores, pred_classes = self.inference(cropped_img,preprocess_functions=prepocess_functions)
             self.last_frame_output = (boxes, scores, pred_classes)
             self.skipped_frame_count = 0
 
@@ -293,7 +281,6 @@ class Detector:
             boxes = [row[0] for row in result_list]
             scores = [row[1] for row in result_list]
             pred_classes = [row[2] for row in result_list]
-
         else:
             boxes = []
             scores = []

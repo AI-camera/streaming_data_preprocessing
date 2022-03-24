@@ -44,16 +44,16 @@ async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_fr
             # print(f"Preprocess time: %.2f (s)" % (time()-start_preprocess))
             start_postprocess = time()
             for postprocess_func in postprocess:
-                frame = postprocess_func(frame)
+                frame = postprocess_func(frame,crop_box=((0.2,0.4),(1,1)))
             # print(f"Postprocess time: %.2f (s)" % (time()-start_postprocess))
 
             start_encode = time()
             if frame is None:
                 print("camera.py frame is None. Default to error image")
-                frame = camera.encode_to_jpg(camera.default_error_image)
+                frame = camera.encode_to_png(camera.default_error_image)
                 continue
             else:
-                frame = camera.encode_to_jpg(frame)
+                frame = camera.encode_to_png(frame)
             finish_encode = time()
             elapsed = time() - start
             # print(f"Encoding time: %.2f" % (finish_encode - start_encode))
@@ -105,21 +105,21 @@ async def video_feed_lowlight_enhance():
 @app.get("/video_feed_vehicle_detect")
 async def video_feed_vehicle_detect():
     return StreamingResponse(gen(camera, False,camera.get_raw_frame,
-    postprocess=[camera.detect_vehicle]), 
+    postprocess=[camera.detect_object]), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 
 @app.get("/video_feed_vehicle_detect/lowlight_enhance")
 async def video_feed_vehicle_detect_lowlight_enhance():
     return StreamingResponse(gen(camera, False,camera.get_raw_frame,
     preprocess=[camera.lowlight_enhance],
-    postprocess=[camera.detect_vehicle]), 
+    postprocess=[camera.detect_object]), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 
 @app.get("/dev")
 async def dev():
     return StreamingResponse(gen(camera, False,camera.get_raw_frame,
     preprocess=[],
-    postprocess=[camera.detect_vehicle]), 
+    postprocess=[camera.detect_object]), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 
 if __name__ == '__main__':

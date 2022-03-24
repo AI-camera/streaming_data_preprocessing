@@ -84,11 +84,11 @@ def dehaze(src):
     return J
 
 def lowlight_enhance(src):
-    start = time()
+    # start = time()
     src = 255-src
     src = dehaze(src)
     src = 255-src
-    print(f"Enhance time: %.2f" % (time()-start))
+    # print(f"Enhance time: %.2f" % (time()-start))
     return src
 
 if __name__ == '__main__':

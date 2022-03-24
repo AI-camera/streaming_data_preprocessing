@@ -24,13 +24,13 @@ class Track:
         newPosition = (int((x1+x2)/2),int((y1+y2)/2))
         # prevent the track from jiggling
         variance = block_distance(newPosition, self.GetCurrentPosition())
-        if len(self.history) >= 150:
+        if len(self.history) >= 1500:
             self.history = self.history[1:]
-        if variance > 350:
-            self.history.append((int((x1+x2)/2),int((y1+y2)/2)))
-            return True
-        else:
-            return False
+        
+        self.history.append((int((x1+x2)/2),int((y1+y2)/2)))
+        return True
+        # else:
+        #     return False
 
     def GetCurrentPosition(self):
         return self.history[len(self.history)-1]

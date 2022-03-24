@@ -50,8 +50,6 @@ class TrackManager():
                 else: 
                     self.markerline_cross_count[markerline] = 1
 
-
-
     def GetIDList(self)->int:
         return [track.id for track in self.tracks]
     
