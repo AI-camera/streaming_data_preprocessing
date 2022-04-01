@@ -29,19 +29,13 @@ python3 examples/detect_image.py \
   --output ${HOME}/grace_hopper_processed.bmp
 ```
 """
-
-import argparse
-import time
-
 from PIL import Image
 from utils import *
 import cv2
 import numpy as np
 
-
 from pycoral_lib.pycoral_utils.adapters import common
 from pycoral_lib.pycoral_utils.adapters import detect
-from pycoral_lib.pycoral_utils.utils.dataset import read_label_file
 from pycoral_lib.pycoral_utils.utils.edgetpu import make_interpreter
 
 DEFAULT_LABELS = 'cfg/coco91.names'
@@ -55,10 +49,8 @@ class Detector:
     self.interpreter.allocate_tensors()
     self.colors = np.random.uniform(30, 255, size=(len(self.labels), 3))
     self.threshold = threshold
-    self.skipped_frame_count = -1
-    self.last_frame_output = None
 
-  def detect(self,image,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],prepocess_functions=[]):
+  def detect(self,image,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],preprocess_functions = []):
     '''
       - Detect objects in image
       - Params:
@@ -66,36 +58,32 @@ class Detector:
       - Returns:
         * bboxes, scores, classes
     '''
+    x1,y1 = denormalize_coordinate(image,crop_box[0])
+    x2,y2 = denormalize_coordinate(image,crop_box[1])
+    image = imcrop(image,x1,y1,x2,y2)
+    for function in preprocess_functions:
+      image = function(image)
+    
+    image = image.astype("uint8")
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(image.astype('uint8'))
+    _, scale = common.set_resized_input(
+    self.interpreter, image.size, lambda size: image.resize(size, Image.ANTIALIAS))
+    self.interpreter.invoke()
+    objs = detect.get_objects(self.interpreter, self.threshold, scale)
 
-    if self.skipped_frame_count<frame_skip and self.skipped_frame_count>=0:
-      bboxes, scores, classes = self.last_frame_output
-      self.skipped_frame_count +=1
-    else:
-      x1,y1 = denormalize_coordinate(image,crop_box[0])
-      x2,y2 = denormalize_coordinate(image,crop_box[1])
-      image = imcrop(image,x1,y1,x2,y2)
-      image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-      image = Image.fromarray(image.astype('uint8'))
-      _, scale = common.set_resized_input(
-      self.interpreter, image.size, lambda size: image.resize(size, Image.ANTIALIAS))
-      self.interpreter.invoke()
-      objs = detect.get_objects(self.interpreter, self.threshold, scale)
+    bboxes = []
+    classes = []
+    scores = []
 
-      bboxes = []
-      classes = []
-      scores = []
-
-      for obj in objs:
-        if self.labels[obj.id] in selected_classes:
-          bboxes.append(((obj.bbox.xmin,obj.bbox.ymin),(obj.bbox.xmax,obj.bbox.ymax)))
-          classes.append(obj.id)
-          scores.append(obj.score)
-      
-      if len(bboxes) > 0:
-          bboxes, scores, classes = nms_boxes(bboxes, scores, classes)
-
-      self.last_frame_output = (bboxes, scores, classes)
-      self.skipped_frame_count = 0
+    for obj in objs:
+      if self.labels[obj.id] in selected_classes:
+        bboxes.append(((obj.bbox.xmin,obj.bbox.ymin),(obj.bbox.xmax,obj.bbox.ymax)))
+        classes.append(obj.id)
+        scores.append(obj.score)
+    
+    if len(bboxes) > 0:
+        bboxes, scores, classes = nms_boxes(bboxes, scores, classes)
     
     return bboxes, scores, classes
  

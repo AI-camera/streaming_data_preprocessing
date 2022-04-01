@@ -76,6 +76,10 @@ class Camera:
         codec = cv2.VideoWriter_fourcc(*'mp4v')
         self.out = cv2.VideoWriter("./output/output.mp4", codec, fps, (width, height))
 
+        # Define frame skip properties
+        self.skipped_frame_count = -1
+        self.last_frame_output = None
+
         self.run()
 
     def run(self):
@@ -206,6 +210,9 @@ class Camera:
         finally:
             return denoised_frame
 
+    def get_denoised_frame(self,frame):
+        return self.denoise(self.get_raw_frame())
+
     def get_denoised_concat_frame(self):
         return self.get_concat_frame(self.denoise)
 
@@ -217,6 +224,9 @@ class Camera:
     
     def sharpen(self,frame):
         return 2*frame - self.gaussian_blur(frame)
+
+    def get_sharpened_frame(self):
+        return self.sharpen(self.get_raw_frame())
 
     def get_median_blur_concat_frame(self):
         return self.get_concat_frame(self.median_blur)    
@@ -336,18 +346,25 @@ class Camera:
             frame = cv2.circle(frame, track.GetCurrentPosition(), radius=2, color=(0, 0, 255), thickness=-1)
         return frame
 
-    def detect_object(self, frame, crop_box=((0.0,0.0),(1,1)), frame_skip=0, motion_only = True):
+    def detect_object(self, frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3, motion_only = True, preprocess_functions = []):
         if crop_box[0][0] >= crop_box[1][0] or crop_box[0][1] >= crop_box[1][1]:
             print("The cropbox is invalid! Cropbox should be tuple (topleftpoint,botrightpoint)")
         x1,y1 = denormalize_coordinate(frame,crop_box[0])
         x2,y2 = denormalize_coordinate(frame,crop_box[1])
 
-        boxes, scores, pred_classes = self.detector.detect(frame, crop_box, frame_skip,
-            selected_classes = ["car","motorbike"])
+        # Run inference, get boxes
+        # Skip *frame_skip* frames per 1 infered frame
+        if self.skipped_frame_count<frame_skip and self.skipped_frame_count>=0:
+            boxes, scores, pred_classes = self.last_frame_output
+            self.skipped_frame_count +=1
+        else:
+            boxes, scores, pred_classes = self.detector.detect(frame, crop_box, frame_skip, selected_classes = ["car","motorbike"],preprocess_functions = preprocess_functions)
+            self.last_frame_output = (boxes, scores, pred_classes)
+            self.skipped_frame_count = 0
 
         frame = self.draw_marker_lines(frame)
         frame = self.draw_crop_box(frame,x1,y1,x2,y2)
-        # Run inference, get boxes
+
         boxes_to_track = []
         tracked_boxes_and_ids = []
         for box in boxes:
@@ -394,6 +411,19 @@ class Camera:
 
         return frame
     
+    def detect_object_lowlight_enhance(self, frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3, motion_only = True):
+        return self.detect_object(frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3, motion_only = True, preprocess_functions=[self.lowlight_enhance])
+
+    def get_detect_object_lowlight_enhance_frame(self):
+        frame = self.get_raw_frame()
+        if frame is not None:
+            return self.detect_object_lowlight_enhance(frame)
+
+    def get_detect_object_frame(self):
+        frame = self.get_raw_frame()
+        if frame is not None:
+            return self.detect_object(frame)
+
     def draw_marker_lines(self,frame):
         '''Loop over the marker line dictionary to get each marker line'''
         color=(0, 255, 255)
@@ -420,7 +450,7 @@ class Camera:
         '''Write frame to out.mp4'''
         self.out.write(frame)
 
-    
+
 if __name__ == '__main__':
     fps = 24
     fps_max = 24
@@ -431,21 +461,28 @@ if __name__ == '__main__':
     i = 0
     start = time.time()
     while True:
-        
-        frame = camera.get_raw_frame()
-        if frame is None:
-            continue
-
         if i%100 == 0 and i >0:
             print("camera.py executing " + str(i))
             print("FPS", str(100/(time.time()-start)))
             start = time.time()
 
         i +=1
-        if i > 3000:
+        if i > 2000:
             break
+
+        frame = camera.get_detect_object_frame()
+        if frame is None:
+            i -= 1
+            continue
         
-        frame = camera.detect_object(frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3)
+        # frame = camera.get_raw_frame()
+        
+        # print("Entropy before enhancing")
+        # print(entropy(frame))
+        # frame = camera.lowlight_enhance(frame)
+        # print("Entropy after enhancing")
+        # print(entropy(frame))
+
         camera.write_frame_to_output_file(frame)
 
     camera.out.release()

@@ -207,3 +207,9 @@ def point_line_distance(point,linePoint1, linePoint2):
     p3 = np.array(point)
     print(np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1))
     return np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1)
+
+def entropy(frame):
+    marg = np.histogramdd(np.ravel(frame), bins = 256)[0]/frame.size
+    marg = list(filter(lambda p: p > 0, np.ravel(marg)))
+    entropy = -np.sum(np.multiply(marg, np.log2(marg)))
+    return entropy

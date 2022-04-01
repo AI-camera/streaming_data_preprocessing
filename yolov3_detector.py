@@ -45,8 +45,7 @@ class Detector:
 
         self.interpreter = self.make_interpreter()
         self.interpreter.allocate_tensors()
-        self.skipped_frame_count=-1
-        self.last_frame_output=None
+
 
     def make_interpreter(self):
         ''' 
@@ -244,7 +243,7 @@ class Detector:
 
         return input_details, output_details, input_shape
 
-    def detect(self,img,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],prepocess_functions=[]):
+    def detect(self,img,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],preprocess_functions=[]):
         '''
         Make inference on an image
         - Args:
@@ -264,16 +263,8 @@ class Detector:
         x1,y1 = denormalize_coordinate(img,crop_box[0])
         x2,y2 = denormalize_coordinate(img,crop_box[1])
         cropped_img = imcrop(img,x1,y1,x2,y2)
-        
-        # Skip *frame_skip* frames per 1 infered frame
-        if self.skipped_frame_count<frame_skip and self.skipped_frame_count>=0:
-            boxes, scores, pred_classes = self.last_frame_output
-            self.skipped_frame_count +=1
-        else:
-            boxes, scores, pred_classes = self.inference(cropped_img,preprocess_functions=prepocess_functions)
-            self.last_frame_output = (boxes, scores, pred_classes)
-            self.skipped_frame_count = 0
 
+        boxes, scores, pred_classes = self.inference(img, preprocess_functions=preprocess_functions)
         # Get the boxes of selected class
         result_list = [(box, score, pred_class) for (box, score, pred_class) in zip(boxes, scores,pred_classes) if self.classes[int(pred_class)] in selected_classes]
 
