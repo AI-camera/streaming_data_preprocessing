@@ -6,7 +6,7 @@ class TrackManager():
         self.tracks = []
         self.markerline_cross_count = dict()
     
-    def HandleNewTrack(self, trackPosition, trackID, markerlineDict):
+    def HandleNewTrack(self, trackPosition, trackID, markerlineDict, redlight_markerline_id):
         '''
         * Handle new track and old track's updates
         * Track position should be normalized before calling this function
@@ -18,9 +18,9 @@ class TrackManager():
         else:
             self.GetTrackByID(trackID).Activate()
             if self.GetTrackByID(trackID).Update(trackPosition):
-                self.CheckMarkerLineCross(self.GetTrackByID(trackID), markerlineDict)
+                self.CheckMarkerLineCross(self.GetTrackByID(trackID), markerlineDict, redlight_markerline_id)
 
-    def HandleNewTracks(self, tracked_boxes_and_ids, markerlineDict):
+    def HandleNewTracks(self, tracked_boxes_and_ids, markerlineDict, redlight_markerline_id):
         '''
         * Handle multiple tracks' updates
         * Track position should be normalized before calling this function
@@ -31,9 +31,9 @@ class TrackManager():
             track_boxes = [row[0:4] for row in tracked_boxes_and_ids]
             ids = [row[4] for row in tracked_boxes_and_ids]
             for track_box,id in zip(track_boxes,ids):
-                self.HandleNewTrack(track_box, id, markerlineDict)
+                self.HandleNewTrack(track_box, id, markerlineDict,redlight_markerline_id)
 
-    def CheckMarkerLineCross(self,track:Track,markerlineDict):
+    def CheckMarkerLineCross(self,track:Track,markerlineDict, redlight_markerline_id=[]):
         for markerline in markerlineDict.items():
             markerlineID = markerline[0]
             try:
@@ -44,6 +44,9 @@ class TrackManager():
             
             trackPoint1, trackPoint2 = track.GetCurrentRoute()
             if intersect(trackPoint1,trackPoint2,markerlinePoint1,markerlinePoint2):
+                if (len(track.crossedMarkerlineIDs) == 0) and markerlineID in redlight_markerline_id:
+                    track.crossedMarkerlineIDs.append('RED_CROSS')
+
                 track.CrossMarkerline(markerlineID)
                 if markerline in self.markerline_cross_count.keys():
                     self.markerline_cross_count[markerline] +=1
@@ -57,3 +60,4 @@ class TrackManager():
         for track in self.tracks:
             if track.id == id:
                 return track
+    

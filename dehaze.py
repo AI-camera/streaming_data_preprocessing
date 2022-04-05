@@ -57,7 +57,8 @@ def Guidedfilter(im,p,r,eps):
 
 def TransmissionRefine(im,et):
     gray = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY);
-    gray = np.float64(gray)/255;
+    # gray = np.float64(gray)/255;
+    gray = gray/255
     r = 60;
     eps = 0.0001;
     t = Guidedfilter(gray,et,r,eps);
@@ -81,7 +82,9 @@ def dehaze(src):
     t = TransmissionRefine(src,te)
     J = Recover(I,t,A,0.1)
     J = J*255
-    return J
+    J[J>255] = 255
+    J[J<0] = 0
+    return J.astype(np.uint8)
 
 def lowlight_enhance(src):
     # start = time()

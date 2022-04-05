@@ -213,3 +213,15 @@ def entropy(frame):
     marg = list(filter(lambda p: p > 0, np.ravel(marg)))
     entropy = -np.sum(np.multiply(marg, np.log2(marg)))
     return entropy
+
+def brightness(frame):
+    frame = frame.astype('uint8')
+    l_channel = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)[...,0]
+    brightness_sum = 0
+    num_pixel = 0
+    for row in l_channel:
+        for pixel in row:
+            brightness_sum += pixel
+            num_pixel += 1
+    
+    return brightness_sum/num_pixel

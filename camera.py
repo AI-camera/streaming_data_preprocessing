@@ -1,5 +1,5 @@
 from os import stat_result
-from dehaze import lowlight_enhance
+import dehaze
 import cv2
 import numpy as np
 import threading
@@ -30,7 +30,7 @@ AKIHABARA_01_CROPBOX = ((0.2,0.4),(1,1))
 MOTION_THRESHOLD = 3
 
 class Camera:
-    def __init__(self, fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector()):
+    def __init__(self, fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector(), markerlines = VIDEO_05_MARKERLINES):
         """
         - fps: Rate at which frames are read from video_source
         - video_source: The video_source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
@@ -38,8 +38,8 @@ class Camera:
         """
         self.fps = fps
         self.video_source = cv2.VideoCapture(video_source)
-        # We want a max of 3s history to be stored, thats 3s*fps
-        self.max_frames = 3*self.fps
+        # We want a max of 1s history to be stored, thats 3s*fps
+        self.max_frames = 1*self.fps
         self.frames = []
         self.lowlight_enhanced_frames = []
         self.isrunning = False
@@ -66,21 +66,22 @@ class Camera:
         self.trackManager = TrackManager()
 
         # Marker lines dictionary
-        self.markerlines_dict = dict()
-        # self.markerlines_dict = VIDEO_05_MARKERLINES
+        self.markerlines_dict = markerlines
 
         # Define video file output
         width = int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(self.video_source.get(cv2.CAP_PROP_FPS))
-        codec = cv2.VideoWriter_fourcc(*'mp4v')
-        self.out = cv2.VideoWriter("./output/output.mp4", codec, fps, (width, height))
+        codec = cv2.VideoWriter_fourcc('M','J','P','G')
+        self.out = cv2.VideoWriter("./output/output.avi", codec, fps, (width, height))
 
         # Define frame skip properties
         self.skipped_frame_count = -1
         self.last_frame_output = None
 
         self.run()
+    def set_marker_lines(self,markerlines):
+        self.markerlines_dict = markerlines
 
     def run(self):
         global thread
@@ -101,7 +102,7 @@ class Camera:
         while self.isrunning:
             v, img = self.video_source.read()
             if v:
-                if len(self.frames) == self.max_frames:
+                if len(self.frames) >= 2:
                     self.frames = self.frames[1:]
                 self.frames.append(img)
             elif(self.allow_loop):
@@ -153,7 +154,7 @@ class Camera:
 
     def get_raw_frame(self):
         if len(self.frames) > 0:
-            return self.frames[-1]
+            return self.frames[0]
     
     def has_frame(self):
         if len(self.frames) > 0:
@@ -244,21 +245,45 @@ class Camera:
     def get_he_concat_frame(self):
         return self.get_concat_frame(self.he)
 
-    def lowlight_enhance(self, img):
+    def lowlight_enhance(self, img, scale = 1):
         '''
         - Lowlight enhance
         '''
         #Downscale the image for better performance
-        scale_percent = 0.4 # percent of original size
-        width = int(img.shape[1] * scale_percent)
-        height = int(img.shape[0] * scale_percent)
+        if scale == 1:
+            return dehaze.lowlight_enhance(img)
+
+        width = int(img.shape[1] * scale)
+        height = int(img.shape[0] * scale)
         dim = (width, height)
         img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
-        img = lowlight_enhance(img)
+        img = dehaze.lowlight_enhance(img)
 
-        scale_percent = 1/scale_percent #Scale back
-        width = int(img.shape[1] * scale_percent)
-        height = int(img.shape[0] * scale_percent)
+        scale = 1/scale #Scale back
+        width = int(img.shape[1] * scale)
+        height = int(img.shape[0] * scale)
+        dim = (width, height)
+        result = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+
+        return result.astype('uint8')
+    
+    def dehaze(self, img, scale = 1):
+        '''
+        - Lowlight enhance
+        '''
+        #Downscale the image for better performance
+        if scale == 1:
+            return dehaze.dehaze(img)
+
+        width = int(img.shape[1] * scale)
+        height = int(img.shape[0] * scale)
+        dim = (width, height)
+        img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+        img = dehaze.dehaze(img)
+
+        scale = 1/scale #Scale back
+        width = int(img.shape[1] * scale)
+        height = int(img.shape[0] * scale)
         dim = (width, height)
         result = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
 
@@ -346,9 +371,11 @@ class Camera:
             frame = cv2.circle(frame, track.GetCurrentPosition(), radius=2, color=(0, 0, 255), thickness=-1)
         return frame
 
-    def detect_object(self, frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3, motion_only = True, preprocess_functions = []):
-        if crop_box[0][0] >= crop_box[1][0] or crop_box[0][1] >= crop_box[1][1]:
-            print("The cropbox is invalid! Cropbox should be tuple (topleftpoint,botrightpoint)")
+    def detect_object(self, frame, crop_box=((0.0,0.0),(1,1)), frame_skip=3, motion_only = True,selected_classes = ["car","motorbike"], preprocess_functions = [],redlight_markerline_ids=[]):
+        '''
+        Detect chosen object from frame
+        '''
+        # frame = frame.copy()
         x1,y1 = denormalize_coordinate(frame,crop_box[0])
         x2,y2 = denormalize_coordinate(frame,crop_box[1])
 
@@ -358,7 +385,7 @@ class Camera:
             boxes, scores, pred_classes = self.last_frame_output
             self.skipped_frame_count +=1
         else:
-            boxes, scores, pred_classes = self.detector.detect(frame, crop_box, frame_skip, selected_classes = ["car","motorbike"],preprocess_functions = preprocess_functions)
+            boxes, scores, pred_classes = self.detector.detect(frame, crop_box, frame_skip, selected_classes = selected_classes,preprocess_functions = preprocess_functions)
             self.last_frame_output = (boxes, scores, pred_classes)
             self.skipped_frame_count = 0
 
@@ -383,7 +410,7 @@ class Camera:
             coordinate2 = denormalize_coordinate(frame, coordinate2)
             denormalized_markerlines_dict[key] = (coordinate1, coordinate2)
 
-        self.trackManager.HandleNewTracks(tracked_boxes_and_ids,denormalized_markerlines_dict)
+        self.trackManager.HandleNewTracks(tracked_boxes_and_ids,denormalized_markerlines_dict, redlight_markerline_ids)
 
         #Draw all the tracks   
         for track in self.trackManager.tracks:
@@ -396,7 +423,8 @@ class Camera:
                     text += markerline
                     text += ','
                 cv2.putText(frame, text, (track_x, track_y), cv2.FONT_HERSHEY_DUPLEX,0.45, (0,255,0), 1, cv2.LINE_AA)
-                # Draw lines between track's history
+                
+                # Connect track's history dots
                 for i in range(len(track.history)-1):
                     history1 = track.history[i]
                     history2 = track.history[i+1]
@@ -408,6 +436,12 @@ class Camera:
 
         if len(boxes) > 0:
             frame = self.detector.draw_boxes(frame, boxes, scores, pred_classes, x1, y1)
+
+        text = f""
+        if len(redlight_markerline_ids) > 0:
+            text = f"RED LIGHT!"
+        textpos=(0,100)
+        cv2.putText(frame, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
 
         return frame
     
@@ -454,34 +488,37 @@ class Camera:
 if __name__ == '__main__':
     fps = 24
     fps_max = 24
-    streaming_time = 1000
 
-    camera = Camera(fps_max,"./sample/video_03.mp4",True,detector=MobileDetDetector())
+    camera = Camera(fps_max,"./sample/fog_01.mp4",True,detector=MobileDetDetector())
+    camera.set_marker_lines(VIDEO_05_MARKERLINES)
     camera.run()
     i = 0
-    start = time.time()
+    inference_time_history = []
     while True:
-        if i%100 == 0 and i >0:
-            print("camera.py executing " + str(i))
-            print("FPS", str(100/(time.time()-start)))
-            start = time.time()
+        frame = camera.get_raw_frame()
+        if frame is None:
+            continue           
 
         i +=1
-        if i > 2000:
+        if i > 200:
             break
-
-        frame = camera.get_detect_object_frame()
-        if frame is None:
-            i -= 1
-            continue
+            
+        start = time.time()
+        # print("Brightness before enhancing")
+        # print("%.2f" % brightness(frame))
+        # print("Brightness after enhancing")
+        # print("%.2f" % brightness(frame))
+        # if i > 1300:
+        #     frame = camera.detect_object(frame,crop_box = VIDEO_05_CROPBOX)
+        # else: 
+        #     frame = camera.detect_object(frame,crop_box = VIDEO_05_CROPBOX, redlight_markerline_ids=["L2","L4"])   
         
-        # frame = camera.get_raw_frame()
-        
-        # print("Entropy before enhancing")
-        # print(entropy(frame))
-        # frame = camera.lowlight_enhance(frame)
-        # print("Entropy after enhancing")
-        # print(entropy(frame))
+        inference_time_history.append(time.time() - start)
+        if len(inference_time_history) > 10:
+            inference_time_history = inference_time_history[1:]
+        if i%2 == 0 and i >0:
+            print("camera.py executing " + str(i))
+            print("FPS: ", str(1/(sum(inference_time_history)/len(inference_time_history))))
 
         camera.write_frame_to_output_file(frame)
 
