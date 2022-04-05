@@ -92,7 +92,11 @@ def get_classes(path):
     return classes
 
 def nms_boxes(boxes, scores, classes):
-    present_classes = np.unique(classes)
+    # present_classes = np.unique(classes)
+    if type(boxes) is list:
+        boxes = np.asarray(boxes)
+        scores = np.asarray(scores)
+        classes = np.asarray(classes)
     assert(boxes.shape[0] == scores.shape[0])
     assert(boxes.shape[0] == classes.shape[0])
 
@@ -105,7 +109,7 @@ def nms_boxes(boxes, scores, classes):
     # Run nms for each class
     i = 0
     while True:
-        if len(boxes) == 1 or i >= len(boxes) or i == MAX_BOXES:
+        if len(boxes) == 1 or i >= len(boxes) or i >= MAX_BOXES:
             break
 
         # Get box with highest score
@@ -203,3 +207,21 @@ def point_line_distance(point,linePoint1, linePoint2):
     p3 = np.array(point)
     print(np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1))
     return np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1)
+
+def entropy(frame):
+    marg = np.histogramdd(np.ravel(frame), bins = 256)[0]/frame.size
+    marg = list(filter(lambda p: p > 0, np.ravel(marg)))
+    entropy = -np.sum(np.multiply(marg, np.log2(marg)))
+    return entropy
+
+def brightness(frame):
+    frame = frame.astype('uint8')
+    l_channel = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)[...,0]
+    brightness_sum = 0
+    num_pixel = 0
+    for row in l_channel:
+        for pixel in row:
+            brightness_sum += pixel
+            num_pixel += 1
+    
+    return brightness_sum/num_pixel
