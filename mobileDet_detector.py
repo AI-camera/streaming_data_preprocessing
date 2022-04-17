@@ -60,7 +60,7 @@ class Detector:
     '''
     x1,y1 = denormalize_coordinate(image,crop_box[0])
     x2,y2 = denormalize_coordinate(image,crop_box[1])
-    image = imcrop(image,x1,y1,x2,y2)
+    image = imcrop(image,(x1,y1,x2,y2))
     for function in preprocess_functions:
       image = function(image)
     

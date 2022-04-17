@@ -155,7 +155,7 @@ def iou(box1, box2):
 
     return IoU
 
-def imcrop(img,x1,y1,x2,y2):
+def imcrop(img,crop_box):
     '''
         Crop the image using bounding box
         x1: x top-left of bounding box
@@ -163,6 +163,7 @@ def imcrop(img,x1,y1,x2,y2):
         x2: x bot-right of bounding box
         y2: y bot-right of bounding box
     '''
+    ((x1,y1),(x2,y2)) = crop_box
     return img[y1:y2,x1:x2]
 
 def ccw(A,B,C):
@@ -225,3 +226,11 @@ def brightness(frame):
             num_pixel += 1
     
     return brightness_sum/num_pixel
+
+def is_in_box(position,box):
+    (x,y) = position
+    (x1,y1,x2,y2) = box
+    if (x>x1) and (y>y1) and (x<x2) and (y<y2):
+        return True
+    else:
+        return False

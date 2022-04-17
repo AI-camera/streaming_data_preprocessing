@@ -262,7 +262,7 @@ class Detector:
         #Crop the image using (x1,y1) and (x2,y2)
         x1,y1 = denormalize_coordinate(img,crop_box[0])
         x2,y2 = denormalize_coordinate(img,crop_box[1])
-        cropped_img = imcrop(img,x1,y1,x2,y2)
+        cropped_img = imcrop(img,(x1,y1,x2,y2))
 
         boxes, scores, pred_classes = self.inference(img, preprocess_functions=preprocess_functions)
         # Get the boxes of selected class
