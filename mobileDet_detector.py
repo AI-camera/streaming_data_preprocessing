@@ -60,7 +60,7 @@ class Detector:
     '''
     x1,y1 = denormalize_coordinate(image,crop_box[0])
     x2,y2 = denormalize_coordinate(image,crop_box[1])
-    image = imcrop(image,(x1,y1,x2,y2))
+    image = imcrop(image,((x1,y1),(x2,y2)))
     for function in preprocess_functions:
       image = function(image)
     
@@ -112,7 +112,7 @@ class Detector:
         # Add offset in case only a region of image is fed to model
         topleft = (int(topleft[0]+offset_x), int(topleft[1]+offset_y))
         botright = (int(botright[0]+offset_x), int(botright[1]+offset_y))
-        cv2.rectangle(image, topleft, botright, color, 2)
+        cv2.rectangle(image, topleft, botright, color, 1)
         textpos = (topleft[0]-2, topleft[1] - 3)
         score = scores[i] * 100
         cl_name = self.labels[cl]
@@ -120,7 +120,7 @@ class Detector:
         if cl_name in vehicle_names:
             vehicle_count +=1
 
-        text = f"{cl_name} ({score:.1f}%) (position: {topleft[0]:.1f})"
+        text = f"{cl_name} ({score:.1f}%)"
         cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,
                 0.45, color, 1, cv2.LINE_AA)
         i += 1

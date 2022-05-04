@@ -1,7 +1,7 @@
 from os import stat_result, truncate
 
 from cv2 import COLOR_BGR2HSV
-import dehaze
+import dcp_dehaze
 import cv2
 import numpy as np
 import threading
@@ -38,7 +38,7 @@ FOG_TRAFLIGHT_REDLIGHT_BOX = ((0.794,0.428),(0.81,0.452))
 AKIHABARA_03_REDLIGHT_BOX = ((0.101,0.21),(0.12,0.240))
 
 class Camera:
-    def __init__(self, fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector(), markerlines = VIDEO_05_MARKERLINES):
+    def __init__(self, fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector(), markerlines = {}):
         """
         - fps: Rate at which frames are read from video_source
         - video_source: The video_source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
@@ -92,7 +92,7 @@ class Camera:
         # Define detection properties
         self.skipped_frame_count = -1
         self.last_frame_output = None
-        self.frameskip = 0
+        self.frame_skip = 0
         self.selected_classes = ["car","motorbike"]
         self.preprocess_functions = []
         self.redlight_markerline_ids=[]
@@ -103,7 +103,8 @@ class Camera:
         self.detect_box = detect_box
 
     def set_frame_skip(self,frameskip):
-        self.frameskip = frameskip
+        '''Set how many frame is skipped before a frame is inferenced by model'''
+        self.frame_skip = frameskip
 
     def set_selected_classes(self,selected_classes):
         self.selected_classes = selected_classes
@@ -285,13 +286,13 @@ class Camera:
         '''
         #Downscale the image for better performance
         if scale == 1:
-            return dehaze.lowlight_enhance(img)
+            return dcp_dehaze.lowlight_enhance(img)
 
         width = int(img.shape[1] * scale)
         height = int(img.shape[0] * scale)
         dim = (width, height)
         img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
-        img = dehaze.lowlight_enhance(img)
+        img = dcp_dehaze.lowlight_enhance(img)
 
         scale = 1/scale #Scale back
         width = int(img.shape[1] * scale)
@@ -307,13 +308,13 @@ class Camera:
         '''
         #Downscale the image for better performance
         if scale == 1:
-            return dehaze.dehaze(img)
+            return dcp_dehaze.dehaze(img)
 
         width = int(img.shape[1] * scale)
         height = int(img.shape[0] * scale)
         dim = (width, height)
         img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
-        img = dehaze.dehaze(img)
+        img = dcp_dehaze.dehaze(img)
 
         scale = 1/scale #Scale back
         width = int(img.shape[1] * scale)
@@ -419,12 +420,12 @@ class Camera:
             boxes, scores, pred_classes = self.last_frame_output
             self.skipped_frame_count +=1
         else:
-            boxes, scores, pred_classes = self.detector.detect(frame, self.detect_box, self.frame_skip, selected_classes = self.selected_classes, preprocess_functions = preprocess_functions)
+            boxes, scores, pred_classes = self.detector.detect(frame, self.detect_box, self.frame_skip, selected_classes = self.selected_classes,preprocess_functions = self.preprocess_functions)
             self.last_frame_output = (boxes, scores, pred_classes)
             self.skipped_frame_count = 0
 
         frame = self.draw_marker_lines(frame)
-        frame = self.draw_detect_box(frame,(x1,y1,x2,y2))
+        frame = self.draw_detect_box(frame,((x1,y1),(x2,y2)))
 
         boxes_to_track = []
         tracked_boxes_and_ids = []
@@ -512,7 +513,7 @@ class Camera:
             * x1, x2, y1, y2: Coordinate of topleft and botright of the crop region
         '''
         ((x1,y1),(x2,y2)) = box
-        cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 2)
+        cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 1)
         return image
 
     def write_frame_to_output_file(self,frame):
@@ -544,7 +545,6 @@ class Camera:
 if __name__ == '__main__':
     fps = 24
     fps_max = 24
-
     camera = Camera(fps_max,"./sample/akihabara_03.mp4",True, detector=MobileDetDetector())
     camera.set_marker_lines(VIDEO_05_MARKERLINES)
     camera.set_detect_box(VIDEO_05_DETECT_BOX)

@@ -7,7 +7,7 @@ from time import time
 from utils import *
 import string
 import pytesseract
-import dehaze
+import dcp_dehaze
 
 EDGETPU_SHARED_LIB = "libedgetpu.so.1"
 alphabets = string.digits + string.ascii_lowercase
@@ -216,7 +216,7 @@ class Detector:
             #     #         lpText = ""
 
             # Draw box and class
-            cv2.rectangle(image, topleft, botright, color, 2)
+            cv2.rectangle(image, topleft, botright, color, 1)
             textpos = (topleft[0]-2, topleft[1] - 3)
             score = scores[i] * 100
             cl_name = self.classes[cl]
@@ -224,7 +224,7 @@ class Detector:
             if cl_name in vehicle_names:
                 vehicle_count +=1
 
-            text = f"{cl_name} ({score:.1f}%) (position: {topleft[0]:.1f})"
+            text = f"{cl_name} ({score:.1f}%)"
             cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,
                     0.45, color, 1, cv2.LINE_AA)
             i += 1
