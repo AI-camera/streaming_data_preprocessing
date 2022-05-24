@@ -12,12 +12,12 @@ fps = 24
 fps_max = 24
 streaming_time = 1000
 
-camera = Camera(fps_max,"./sample/video_05.mp4",True)
+camera = Camera(fps_max,"./sample/akihabara_01.mp4",True)
 camera.run()
 
 app = FastAPI()
 
-async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_frame, preprocess = [], postprocess = []):
+async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_frame):
     counter = 0
     fps = fps_max
     timelist = []
@@ -36,25 +36,13 @@ async def gen(camera: Camera, regulate_stream_fps=False, get_frame=camera.get_fr
                 fps = camera.get_regulated_stream_fps()
                 await asyncio.sleep(1/fps)
 
-            # Get frame from camera and do processing
             frame = get_frame()
-            start_preprocess = time()
-            for preprocess_func in preprocess:
-                frame = preprocess_func(frame)
-            # print(f"Preprocess time: %.2f (s)" % (time()-start_preprocess))
-            start_postprocess = time()
-            for postprocess_func in postprocess:
-                frame = postprocess_func(frame)
-            # print(f"Postprocess time: %.2f (s)" % (time()-start_postprocess))
-
-            start_encode = time()
             if frame is None:
-                print("camera.py frame is None. Default to error image")
-                frame = camera.encode_to_jpg(camera.default_error_image)
+                print("server-fastapi.py frame is None. Default to error image")
+                frame = camera.encode_to_png(camera.default_error_image)
                 continue
             else:
-                frame = camera.encode_to_jpg(frame)
-            finish_encode = time()
+                frame = camera.encode_to_png(frame)
             elapsed = time() - start
             # print(f"Encoding time: %.2f" % (finish_encode - start_encode))
             # print(f"Time elapsed per frame: %.2f" % elapsed)
@@ -90,36 +78,39 @@ async def gen_sample():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-@app.get("/video_feed_motion_FPS")
-async def video_feed():
+@app.get("motion_FPS")
+async def motion_FPS():
     return StreamingResponse(gen(camera, True,get_frame=camera.get_fps_attached_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_sample")
-async def video_feed_sample():
+@app.get("denoise")
+async def motion_FPS():
+    return StreamingResponse(gen(camera, True,get_frame=camera.get_denoised_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+
+@app.get("sharpen")
+async def motion_FPS():
+    return StreamingResponse(gen(camera, True,get_frame=camera.get_sharpened_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
+
+@app.get("sample")
+async def sample():
     return StreamingResponse(gen_sample(), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_lowlight_enhance")
-async def video_feed_lowlight_enhance():
+@app.get("lowlight_enhance")
+async def lowlight_enhance():
     return StreamingResponse(gen(camera, False, camera.get_lowlight_enhance_concat_frame), media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_vehicle_detect")
-async def video_feed_vehicle_detect():
-    return StreamingResponse(gen(camera, False,camera.get_raw_frame,
-    postprocess=[camera.detect_vehicle]), 
+@app.get("vehicle_detect")
+async def vehicle_detect():
+    return StreamingResponse(gen(camera, False, camera.get_detect_object_frame),
     media_type="multipart/x-mixed-replace; boundary=--frame")
 
-@app.get("/video_feed_vehicle_detect/lowlight_enhance")
-async def video_feed_vehicle_detect_lowlight_enhance():
-    return StreamingResponse(gen(camera, False,camera.get_raw_frame,
-    preprocess=[camera.lowlight_enhance],
-    postprocess=[camera.detect_vehicle]), 
+@app.get("vehicle_detect/lowlight_enhance")
+async def vehicle_detect_lowlight_enhance():
+    return StreamingResponse(gen(camera, False, camera.get_detect_object_lowlight_enhance_frame), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 
 @app.get("/dev")
 async def dev():
-    return StreamingResponse(gen(camera, False,camera.get_raw_frame,
-    preprocess=[],
-    postprocess=[camera.detect_vehicle]), 
+    return StreamingResponse(gen(camera,camera.get_raw_frame), 
     media_type="multipart/x-mixed-replace; boundary=--frame")
 
 if __name__ == '__main__':
