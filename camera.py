@@ -36,7 +36,7 @@ class Camera:
         self.sizeStr = str(int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))) + 'x' + str(int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.sizeStrConcat = str(int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH)*2)) + 'x' + str(int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.allow_loop = allow_loop
-        self.detector = Detector()
+        self.detector = Detector(edge_tpu=False)
 
         self.default_error_image = cv2.imread("images/500-err.jpg")
 
@@ -312,7 +312,7 @@ class Camera:
         x1,y1 = denormalize_coordinate(frame,crop_box[0])
         x2,y2 = denormalize_coordinate(frame,crop_box[1])
         frame = frame.copy()
-
+        print("foo")
         boxes, scores, pred_classes = self.detector.image_inf(frame, crop_box, frame_skip)
         frame = self.detector.draw_crop_box(frame,x1,y1,x2,y2)
         # Run inference, get boxes
@@ -392,14 +392,15 @@ if __name__ == '__main__':
         if frame is None:
             continue
         
-        if i%100 == 0:
-            print("camera.py executing " + str(i))
+        # if i%100 == 0:
+        print("camera.py executing " + str(i))
         i +=1
         if i > 2000:
             break
         
         frame = camera.detect_vehicle(frame)
         camera.write_frame_to_output_file(frame)
+        cv2.imshow("result",frame)
 
     camera.out.release()
     

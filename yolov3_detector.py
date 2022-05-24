@@ -14,7 +14,8 @@ blank_index = len(alphabets)
 
 DEFAULT_CLASSES_CFG = "./cfg/coco.names"
 DEFAULT_ANCHORS_CFG = "./cfg/tiny_yolo_anchors.txt"
-DEFAULT_MODEL_PATH = "./models/quant_coco-tiny-v3-relu_edgetpu.tflite"
+DEFAULT_MODEL_PATH_EDGE_TPU = "./models/quant_coco-tiny-v3-relu_edgetpu.tflite"
+DEFAULT_MODEL_PATH = "./models/quant_coco-tiny-v3-relu.tflite"
 
 class Detector:
     def __init__(self,classes_cfg=DEFAULT_CLASSES_CFG,
@@ -38,6 +39,9 @@ class Detector:
         self.model_path = model_path
         self.colors = np.random.uniform(30, 255, size=(len(self.classes), 3))
         self.edge_tpu = edge_tpu
+        if self.edge_tpu:
+            self.model_path = DEFAULT_MODEL_PATH_EDGE_TPU
+
         self.quantization = quantization
         self.threshold = threshold
         self.vehicle_names = ["cars","motorbike"]
@@ -122,7 +126,7 @@ class Detector:
         self.interpreter.invoke()
 
         inf_time = time() - start
-        # print(f"Net forward-pass time: {inf_time*1000} ms.")
+        print(f"Net forward-pass time: {inf_time*1000} ms.")
         # Retrieve outputs of the network
         out1 = self.interpreter.get_tensor(output_details[0]['index'])
         out2 = self.interpreter.get_tensor(output_details[1]['index'])
@@ -141,7 +145,7 @@ class Detector:
         _boxes2, _scores2, _classes2 = featuresToBoxes(out2, self.anchors[[1, 2, 3]], 
                 len(self.classes), net_input_shape, img_orig_shape, self.threshold)
         inf_time = time() - start
-        # print(f"Box computation time: {inf_time*1000} ms.") 
+        print(f"Box computation time: {inf_time*1000} ms.") 
 
         # This is needed to be able to append nicely when the output layers don't
         # return any boxes
