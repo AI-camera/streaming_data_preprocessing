@@ -76,11 +76,28 @@ def Recover(im,t,A,tx = 0.1):
 
 def dehaze(src):
     I = src/255
+    time0 = time()
     dark = DarkChannel(I,15)
+    # time1 = time()
+    # print("DarkChannel time: %.2f" % (time1-time0))
+
     A = AtmLight(I,dark)
+    # time2 = time()
+    # print("Atmlight time: %.2f" % (time2-time1))
+
     te = TransmissionEstimate(I,A,15)
+    # time3 = time()
+    # print("Transmission estimate time: %.2f" % (time3-time2))
+
     t = TransmissionRefine(src,te)
+    # time4 = time()
+    # print("Transmission Refine time: %.2f" % (time4-time3))
+
     J = Recover(I,t,A,0.1)
+    # time5 = time()
+    # print("Recovery time: %.2f" % (time5-time4))
+
+    
     J = J*255
     J[J>255] = 255
     J[J<0] = 0
@@ -95,9 +112,9 @@ def lowlight_enhance(src):
     return src
 
 if __name__ == '__main__':
-    img = cv2.imread('images/last.png')
-    img = lowlight_enhance(img)
-    cv2.imwrite("./lowlight_enhance_result.png",img)
+    img = cv2.imread('sample/fog_01.png')
+    img = dehaze(img)
+    cv2.imwrite("./dehaze_result.png",img)
 
 
     

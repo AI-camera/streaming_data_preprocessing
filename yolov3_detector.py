@@ -1,5 +1,3 @@
-# from tkinter import ANCHOR
-# from cv2 import CV_8UC1
 import numpy as np
 import tflite_runtime.interpreter as tflite
 import cv2
@@ -7,7 +5,6 @@ from time import time
 from utils import *
 import string
 import pytesseract
-import dehaze
 
 EDGETPU_SHARED_LIB = "libedgetpu.so.1"
 alphabets = string.digits + string.ascii_lowercase
@@ -22,7 +19,7 @@ class Detector:
     def __init__(self,classes_cfg=DEFAULT_CLASSES_CFG,
                 anchors_cfg=DEFAULT_ANCHORS_CFG,
                 model_path=DEFAULT_MODEL_PATH,
-                edge_tpu=True,
+                edge_tpu=False,
                 quantization=True,
                 threshold=0.3):
         '''
@@ -247,7 +244,7 @@ class Detector:
 
         return input_details, output_details, input_shape
 
-    def detect(self,img,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],preprocess_functions=[]):
+    def detect(self,img,crop_box=((0,0),(1,1)), frame_skip=0, selected_classes = ["car","motorbike"],preprocess_functions=[]):
         '''
         Make inference on an image
         - Args:
@@ -281,4 +278,12 @@ class Detector:
             scores = []
             pred_classes = []
         return boxes, scores, pred_classes
-    
+
+if __name__ == "__main__":
+    frame = cv2.imread("images/car_image_01.png")
+    detector = Detector(edge_tpu=False)
+    start = time()
+    boxes, scores, pred_classes = detector.detect(frame)
+    frame = detector.draw_boxes(frame, boxes, scores, pred_classes, 0, 0)
+    cv2.imwrite("out.png", frame)
+    print(time() - start)

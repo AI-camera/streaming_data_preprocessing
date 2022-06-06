@@ -34,9 +34,9 @@ from utils import *
 import cv2
 import numpy as np
 
-from pycoral_lib.pycoral_utils.adapters import common
-from pycoral_lib.pycoral_utils.adapters import detect
-from pycoral_lib.pycoral_utils.utils.edgetpu import make_interpreter
+from pycoral.adapters import common
+from pycoral.adapters import detect
+from pycoral.utils.edgetpu import make_interpreter
 
 DEFAULT_LABELS = 'cfg/coco91.names'
 DEFAULT_MODEL = 'models/ssdlite_mobiledet_coco_qat_postprocess_edgetpu.tflite'

@@ -1,24 +1,15 @@
-import numpy as np
-import cv2,pandas
-static_back = None
-time = []
+import cv2
 
-df = pandas.DataFrame(collumns = ["Start","End"])
+def frame_diff(frame1,frame2):
+    diff = cv2.absdiff(frame1, frame2)
+    gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5,5), 0)
+    _, thresh = cv2.threshold(blur, 20, 255, cv2.THRESH_BINARY)
+    dilated = cv2.dilate(thresh, None, iterations=3)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-video = cv2.VideoCapture(0)
-
-while True:
-    check, frame = video.read()
-
-    motion = 0
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (21,21),0)
-
-    if static_back is None:
-        static_back = gray
-        continue
-
-    diff_frame = cv2.absdiff(static_back,gray)
-
-    thresh_frame = cv2.threshold(diff_frame, 30)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 500 and area<2000:
+            return True
+    return False
