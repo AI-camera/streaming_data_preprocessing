@@ -1,0 +1,5 @@
+% bbGt version=3
+Motorbike 262 106 90 150 0 0 0 0 0 0 0
+Motorbike 153 130 75 123 0 0 0 0 0 0 0
+People 97 92 76 144 0 0 0 0 0 0 0
+Chair 53 173 67 93 0 0 0 0 0 0 0

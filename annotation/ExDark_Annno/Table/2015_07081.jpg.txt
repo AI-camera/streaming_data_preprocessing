@@ -1,0 +1,2 @@
+% bbGt version=3
+Table 106 298 331 331 0 0 0 0 0 0 0

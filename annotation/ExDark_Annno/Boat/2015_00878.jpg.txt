@@ -1,0 +1,2 @@
+% bbGt version=3
+Boat 1 242 224 65 0 0 0 0 0 0 0

@@ -1,0 +1,2 @@
+% bbGt version=3
+Table 506 512 355 249 0 0 0 0 0 0 0

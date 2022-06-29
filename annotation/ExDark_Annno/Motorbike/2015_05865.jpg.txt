@@ -1,0 +1,3 @@
+% bbGt version=3
+Motorbike 3 19 277 193 0 0 0 0 0 0 0
+Car 194 2 179 119 0 0 0 0 0 0 0

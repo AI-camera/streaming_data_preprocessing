@@ -1,0 +1,2 @@
+% bbGt version=3
+People 664 22 242 451 0 0 0 0 0 0 0

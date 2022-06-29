@@ -33,24 +33,51 @@ from PIL import Image
 from utils import *
 import cv2
 import numpy as np
+import time
+import tflite_runtime.interpreter as tflite
 
-from pycoral_lib.pycoral_utils.adapters import common
-from pycoral_lib.pycoral_utils.adapters import detect
-from pycoral_lib.pycoral_utils.utils.edgetpu import make_interpreter
+from pycoral import common
+from pycoral import detect
+# from pycoral.edgetpu import make_interpreter
 
 DEFAULT_LABELS = 'cfg/coco91.names'
 DEFAULT_MODEL = 'models/ssdlite_mobiledet_coco_qat_postprocess_edgetpu.tflite'
+EDGETPU_SHARED_LIB = "libedgetpu.so.1"
 
 class Detector:
   def __init__(self, quantization=True, threshold=0.5):
     self.labels = get_classes(DEFAULT_LABELS)
-    self.model = DEFAULT_MODEL
-    self.interpreter = make_interpreter(self.model)
+    self.model_path = DEFAULT_MODEL
+    self.edge_tpu = True
+    self.interpreter = self.make_interpreter()
     self.interpreter.allocate_tensors()
     self.colors = np.random.uniform(30, 255, size=(len(self.labels), 3))
     self.threshold = threshold
+    self.preprocess_functions = []
+  
+  def make_interpreter(self):
+    ''' 
+    Create an interpreter 
+    - Args:
+        * model_path: path to model file (must be tflite)
+        * edge_tpu: enable edge tpu
+    ''' 
+    # Load the TF-Lite model and delegate to Edge TPU
+    if self.edge_tpu:
+        interpreter = tflite.Interpreter(model_path=self.model_path,
+                experimental_delegates=[
+                    tflite.load_delegate(EDGETPU_SHARED_LIB)
+                    ])
+    else:
+        interpreter = tflite.Interpreter(model_path=self.model_path)
 
-  def detect(self,image,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],preprocess_functions = []):
+    return interpreter
+  
+  def set_preprocess_functions(self,preprocess_functions):
+    '''Set a LIST of preprocess_functions'''
+    self.preprocess_functions = preprocess_functions
+
+  def detect(self,image,crop_box=None, selected_classes = ["car","motorbike"]):
     '''
       - Detect objects in image
       - Params:
@@ -60,15 +87,10 @@ class Detector:
     '''
     x1,y1 = denormalize_coordinate(image,crop_box[0])
     x2,y2 = denormalize_coordinate(image,crop_box[1])
-    image = imcrop(image,((x1,y1),(x2,y2)))
-    for function in preprocess_functions:
-      image = function(image)
-    
-    image = image.astype("uint8")
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(image.astype('uint8'))
-    _, scale = common.set_resized_input(
-    self.interpreter, image.size, lambda size: image.resize(size, Image.ANTIALIAS))
+    image = imcrop(image,x1,y1,x2,y2)
+      
+    _, scale = common.set_resized_input(self.interpreter, (image.shape[1],image.shape[0]), lambda size: cv2.resize(image,size,interpolation = cv2.INTER_AREA),self.preprocess_functions)
+
     self.interpreter.invoke()
     objs = detect.get_objects(self.interpreter, self.threshold, scale)
 
@@ -127,6 +149,6 @@ class Detector:
     
     text = f"vehicle count: {vehicle_count}"
     textpos=(0,50)
-    cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
+    # cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
 
     return image

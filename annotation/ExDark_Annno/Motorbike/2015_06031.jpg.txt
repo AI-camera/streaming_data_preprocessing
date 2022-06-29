@@ -1,0 +1,6 @@
+% bbGt version=3
+People 147 157 120 232 0 0 0 0 0 0 0
+People 244 148 124 234 0 0 0 0 0 0 0
+Motorbike 134 210 365 179 0 0 0 0 0 0 0
+Motorbike 5 226 72 126 0 0 0 0 0 0 0
+Motorbike 33 214 108 105 0 0 0 0 0 0 0

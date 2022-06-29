@@ -1,10 +1,11 @@
 import numpy as np
 import os
 import cv2
+import math
+
 
 # Maximum number of boxes. Only the top scoring ones will be considered.
 MAX_BOXES = 30
-
 def sigmoid(x):
     return 1. / (1 + np.exp(-x))
 
@@ -141,21 +142,39 @@ def nms_boxes(boxes, scores, classes):
     return boxes[:MAX_BOXES], scores[:MAX_BOXES], classes[:MAX_BOXES]
 
 def iou(box1, box2):
-    xi1 = max(box1[0][0], box2[0][0])
-    yi1 = max(box1[0][1], box2[0][1])
-    xi2 = min(box1[1][0], box2[1][0])
-    yi2 = min(box1[1][1], box2[1][1])
+    '''
+    Find iou of 2 boxes. 
+    Box format must be ((x1,y1),(x2,y2)) or (x1,y1,x2,y2)
+    '''
+    if(len(box1) == 4):
+        x1_1,y1_1, x2_1, y2_1 = box1
+    elif (len(box1) == 2):
+        (x1_1,y1_1), (x2_1, y2_1) = box1
+    else:
+        print("Box1 format must be ((x1,y1),(x2,y2)) or (x1,y1,x2,y2) ")
+    
+    if(len(box2) == 4):
+        x1_2,y1_2, x2_2, y2_2 = box2
+    elif (len(box2) == 2):
+        (x1_2,y1_2), (x2_2, y2_2) = box2
+    else:
+        print("Box2 format must be ((x1,y1),(x2,y2)) or (x1,y1,x2,y2) ")
+        
+    xi1 = max(x1_1, x1_2)
+    yi1 = max(y1_1, y1_2)
+    xi2 = min(x2_1, x2_2)
+    yi2 = min(y2_1, y2_2)
     inter_area = (xi2 - xi1)*(yi2 - yi1)
     # Formula: Union(A,B) = A + B - Inter(A,B)
-    box1_area = (box1[1][1] - box1[0][1])*(box1[1][0]- box1[0][0])
-    box2_area = (box2[1][1] - box2[0][1])*(box2[1][0]- box2[0][0])
+    box1_area = (y2_1 - y1_1)*(x2_1- x1_1)
+    box2_area = (y2_2 - y1_2)*(x2_2- x1_2)
     union_area = (box1_area + box2_area) - inter_area
     # compute the IoU
     IoU = inter_area / union_area
 
     return IoU
 
-def imcrop(img,crop_box):
+def imcrop(img,x1,y1,x2,y2):
     '''
         Crop the image using bounding box
         x1: x top-left of bounding box
@@ -163,7 +182,6 @@ def imcrop(img,crop_box):
         x2: x bot-right of bounding box
         y2: y bot-right of bounding box
     '''
-    ((x1,y1),(x2,y2)) = crop_box
     return img[y1:y2,x1:x2]
 
 def ccw(A,B,C):
@@ -214,6 +232,38 @@ def entropy(frame):
     marg = list(filter(lambda p: p > 0, np.ravel(marg)))
     entropy = -np.sum(np.multiply(marg, np.log2(marg)))
     return entropy
+
+def calculate_psnr(img1, img2):
+    # img1 and img2 have range [0, 255]
+    # img1 = img1.astype(np.float64)
+    # img2 = img2.astype(np.float64)
+    mse = np.mean((img1 - img2)**2)
+    if mse == 0:
+        return float('inf')
+    return 20 * math.log10(255.0 / math.sqrt(mse))
+
+def calculate_ssim(img1, img2):
+    C1 = (0.01 * 255)**2
+    C2 = (0.03 * 255)**2
+
+    # img1 = img1.astype(np.float64)
+    # img2 = img2.astype(np.float64)
+    kernel = cv2.getGaussianKernel(11, 1.5)
+    window = np.outer(kernel, kernel.transpose())
+
+    mu1 = cv2.filter2D(img1, -1, window)[5:-5, 5:-5]  # valid
+    mu2 = cv2.filter2D(img2, -1, window)[5:-5, 5:-5]
+    mu1_sq = mu1**2
+    mu2_sq = mu2**2
+    mu1_mu2 = mu1 * mu2
+    sigma1_sq = cv2.filter2D(img1**2, -1, window)[5:-5, 5:-5] - mu1_sq
+    sigma2_sq = cv2.filter2D(img2**2, -1, window)[5:-5, 5:-5] - mu2_sq
+    sigma12 = cv2.filter2D(img1 * img2, -1, window)[5:-5, 5:-5] - mu1_mu2
+
+    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) *
+                                                            (sigma1_sq + sigma2_sq + C2))
+    return ssim_map.mean()
+
 
 def brightness(frame):
     frame = frame.astype('uint8')

@@ -15,6 +15,7 @@ from sort import *
 from utils import *
 from track_manager import TrackManager
 from track import Track
+from frame_differencing import frame_diff
 thread = None
 
 VIDEO_05_MARKERLINES = dict()
@@ -38,20 +39,20 @@ FOG_TRAFLIGHT_REDLIGHT_BOX = ((0.794,0.428),(0.81,0.452))
 AKIHABARA_03_REDLIGHT_BOX = ((0.101,0.21),(0.12,0.240))
 
 class Camera:
-    def __init__(self, fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector(), markerlines = {}):
+    def __init__(self, max_fps=24, video_source=0, allow_loop=False, detector = MobileDetDetector(), markerlines = {}):
         """
         - fps: Rate at which frames are read from video_source
         - video_source: The video_source to read frames from. Defaulted to 0 (webcam). Anything that can be used in cv2.VideoCapture
         - allow_loop: Set to True to allow looping on video files. This turns those files into endless stream
         """
-        self.fps = fps
+        self.fps = max_fps
+        self.max_fps = max_fps
         self.video_source = cv2.VideoCapture(video_source)
         # We want a max of 1s history to be stored, thats 3s*fps
         self.max_frames = 1*self.fps
         self.frames = []
         self.lowlight_enhanced_frames = []
         self.isrunning = False
-        self.stream_fps = fps
         self.tick = 0
         self.fps_lock = False
         self.motion_detector = None
@@ -66,8 +67,12 @@ class Camera:
 
         self.default_error_image = cv2.imread("images/500-err.jpg")
 
-        # Optical Flow motion detector
-        self.motion_detector = OpticalFlowMotionDetector()
+        # motion detector properties
+        # self.motion_detector = OpticalFlowMotionDetector()
+        self.last_frame = None
+        self.motion_detect_enabled = False
+        self.motion_detected = False
+        self.motion_lock_counter = 0
 
         # SORT tracker
         self.tracker = Sort()
@@ -77,11 +82,11 @@ class Camera:
         self.markerlines_dict = markerlines
 
         # Define video file output
-        width = int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = int(self.video_source.get(cv2.CAP_PROP_FPS))
-        codec = cv2.VideoWriter_fourcc('M','J','P','G')
-        self.out = cv2.VideoWriter("./output/output.avi", codec, fps, (width, height))
+        self.width = int(self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.fps = int(self.video_source.get(cv2.CAP_PROP_FPS))
+        self.codec = cv2.VideoWriter_fourcc('M','J','P','G')
+        self.out = cv2.VideoWriter("./output/output.avi", self.codec, self.fps, (self.width, self.height))
 
         # Define detect boxes
         self.detect_box = ((0,0),(1,1))
@@ -94,35 +99,44 @@ class Camera:
         self.last_frame_output = None
         self.frame_skip = 0
         self.selected_classes = ["car","motorbike"]
-        self.preprocess_functions = []
+        # self.preprocess_functions = []
         self.redlight_markerline_ids=[]
         
         self.run()
 
-    def set_detect_box(self,detect_box):
-        self.detect_box = detect_box
+    def set_detect_box(self,x1,y1,x2,y2):
+        '''The detect_box should be percentage'''
+        self.detect_box = ((x1,y1),(x2,y2))
 
     def set_frame_skip(self,frameskip):
         '''Set how many frame is skipped before a frame is inferenced by model'''
         self.frame_skip = frameskip
 
     def set_selected_classes(self,selected_classes):
+        '''Set list classes to be detected'''
         self.selected_classes = selected_classes
 
     def set_preprocess_functions(self,preprocess_functions):
-        self.preprocess_functions = preprocess_functions
+        '''Must set a list of preprocess_functions'''
+        self.detector.set_preprocess_functions(preprocess_functions)
     
     def set_redlight_markerline_ids(self, redlight_markerline_ids):
         self.redlight_markerline_ids = redlight_markerline_ids
 
+    def set_video_output(self, output):
+        self.out = cv2.VideoWriter(output, self.codec, self.fps, (self.width, self.height))
+
     def set_marker_lines(self,markerlines):
         self.markerlines_dict = markerlines
+
+    def enable_motion_detect(self,motion_detect_enabled):
+        self.motion_detect_enabled = motion_detect_enabled
 
     def run(self):
         global thread
         global subthread1
         thread = threading.Thread(target=self._capture_loop,daemon=True)
-        subthread1 = threading.Thread(target=self._lowlight_enhance_loop,daemon=True)
+        # subthread1 = threading.Thread(target=self._lowlight_enhance_loop,daemon=True)
         if not self.isrunning:
             self.isrunning = True
             thread.start()
@@ -144,48 +158,37 @@ class Camera:
                 print("camera.py  End of Video. Loop from start")
                 self.video_source.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
+            if (self.motion_detect_enabled):
+                self.detect_motion()
+
             time.sleep(dt)
-            self.regulate_stream_fps()
     
-    def _lowlight_enhance_loop(self):
-        while self.isrunning:
-            frame = self.get_raw_frame()
-            if frame is not None:
-                if len(self.lowlight_enhanced_frames) == self.max_frames:
-                    self.lowlight_enhanced_frames = self.lowlight_enhanced_frames[1:]
-                frame = self.lowlight_enhance(frame)
-                self.lowlight_enhanced_frames.append(frame)
+    # def _lowlight_enhance_loop(self):
+    #     while self.isrunning:
+    #         frame = self.get_raw_frame()
+    #         if frame is not None:
+    #             if len(self.lowlight_enhanced_frames) == self.max_frames:
+    #                 self.lowlight_enhanced_frames = self.lowlight_enhanced_frames[1:]
+    #             frame = self.lowlight_enhance(frame)
+    #             self.lowlight_enhanced_frames.append(frame)
 
     def stop(self):
         self.isrunning = False
 
     def attach_fps(self, frame):
-        return cv2.putText(frame, 'FPS: ' + str(self.get_regulated_stream_fps()), (10, 450), cv2.FONT_HERSHEY_SIMPLEX,
+        return cv2.putText(frame, 'FPS: ' + str(self.get_fps()), (10, 450), cv2.FONT_HERSHEY_SIMPLEX,
                            1, (0, 255, 0), 2, cv2.LINE_AA)
 
-    def get_fps_attached_frame(self):
-        return self.attach_fps(self.get_raw_frame())
+    def attach_motion_text(self, frame):
+        new_frame = frame.copy()
+        return cv2.putText(new_frame, 'motion: ' + str(self.motion_detected), (10, 450), cv2.FONT_HERSHEY_SIMPLEX,
+                           1, (0, 255, 0), 2, cv2.LINE_AA)
 
     def encode_to_png(self, frame):
         return cv2.imencode('.png', frame)[1].tobytes()
 
     def encode_to_jpg(self, frame):
         return cv2.imencode('.jpg', frame)[1].tobytes()
-
-    def get_frame(self, _bytes=True):
-        if len(self.frames) > 0:
-            frame_with_fps = self.attach_fps(self.get_raw_frame())
-            if _bytes:
-                img = self.encode_to_jpg(frame_with_fps)
-            else:
-                img = frame_with_fps
-        else:
-            with open("images/not_found.jpeg", "rb") as f:
-                img = f.read()
-        return img
-
-    def get_sample_frame_jpg(self):
-        return self.encode_to_jpg(cv2.imread("./images/not_found.jpeg"))
 
     def get_raw_frame(self):
         if len(self.frames) > 0:
@@ -205,31 +208,31 @@ class Camera:
     def get_sizestrConcat(self):
         return self.sizeStrConcat
 
-    def regulate_stream_fps(self):
-        locktime = 2
-        try:
-            if(self.fps_lock and (time.time() - self.start_time) > locktime):
-                self.fps_lock = False
-            frame_raw = self.get_raw_frame()
-            fps_adjustment = np.ceil(
-                self.motion_detector.detect_optical_flow(frame_raw) % self.fps)
-            if(not self.fps_lock):
-                self.stream_fps = fps_adjustment
+    def detect_motion(self):
+        start = time.time()
+        current_frame = self.get_raw_frame()
+        if self.last_frame is None:
+            self.last_frame = current_frame
+            return 
 
-            # Bump the fps up if there's motion
-            # print(fps_adjustment)
-            if(fps_adjustment > MOTION_THRESHOLD):
-                self.stream_fps = self.fps
-                self.fps_lock = True
-                self.start_time = time.time()
-        except Exception as e:
-            print(e)
+        resized_frame = cv2.resize(current_frame, (300,300), interpolation = cv2.INTER_AREA)
 
-    def get_regulated_stream_fps(self):
-        if self.stream_fps < 1:
-            return 1
-        else:
-            return self.stream_fps
+        if current_frame is not None:
+            if(frame_diff(self.last_frame, current_frame)):
+                self.motion_detected = True
+                self.motion_lock_counter = 480
+            elif self.motion_lock_counter > 0:
+                self.motion_lock_counter -= 1
+            else:
+                self.motion_detected = False
+                
+        
+        self.last_frame = current_frame
+        # print("motion_detect_time:")
+        # print(time.time()-start)
+
+    def get_fps(self):
+        return self.fps
    
     def denoise(self, frame):
         '''
@@ -246,12 +249,6 @@ class Camera:
         finally:
             return denoised_frame
 
-    def get_denoised_frame(self,frame):
-        return self.denoise(self.get_raw_frame())
-
-    def get_denoised_concat_frame(self):
-        return self.get_concat_frame(self.denoise)
-
     def median_blur(self,frame):
         return cv2.medianBlur(frame,3)
 
@@ -260,12 +257,6 @@ class Camera:
     
     def sharpen(self,frame):
         return 2*frame - self.gaussian_blur(frame)
-
-    def get_sharpened_frame(self):
-        return self.sharpen(self.get_raw_frame())
-
-    def get_median_blur_concat_frame(self):
-        return self.get_concat_frame(self.median_blur)    
 
     def he(self, frame):
         '''
@@ -276,9 +267,6 @@ class Camera:
         channels[0] = cv2.equalizeHist(channels[0])
         frame_YCC = cv2.merge((channels[0], channels[1], channels[2]))
         return cv2.cvtColor(frame_YCC, cv2.COLOR_YUV2BGR)
-
-    def get_he_concat_frame(self):
-        return self.get_concat_frame(self.he)
 
     def lowlight_enhance(self, img, scale = 1):
         '''
@@ -323,49 +311,6 @@ class Camera:
         result = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
 
         return result
-
-    def get_lowlight_enhanced_frame_from_buffer(self):
-        if len(self.lowlight_enhanced_frames) > 0:
-            return self.lowlight_enhanced_frames[-1]
-
-    def get_lowlight_enhance_concat_frame(self):
-        return self.get_concat_frame(self.lowlight_enhance)
-    
-    def attach_motion_points(self,frame):
-        '''
-        - Using Optical Flow 
-        - Detect motion points, draw bounding box around those points, reduce img quality outside those boxes
-        '''
-        bbox_width = 40
-        self.motion_detector.refresh_motion_points(frame)
-        for i, (new,old) in self.motion_detector.get_motion_points():
-            a,b = old.ravel()
-            c,d = new.ravel()
-            motion_value = np.sqrt((a-c)**2 + (b-d)**2)
-            if(motion_value > -1 and motion_value <10):
-                top_left = (int(c-bbox_width),int(d-bbox_width))
-                bottom_right = (int(c+bbox_width),int(d+bbox_width))
-                color = (255,255,0)
-                # frame = cv2.rectangle(frame,top_left,bottom_right,color,thickness=1)
-                frame = cv2.circle(frame,(c,d),radius=3,color=(255,255,0),thickness=-1)
-
-    def get_frame_with_motion_points(self):
-        frame = self.get_raw_frame()
-        if(self.motion_detector is not None):
-            self.attach_motion_points(frame)
-
-        return self.encode_to_jpg(frame)
-
-    def get_single_frame(self,preprocessfunc):
-        raw_frame = self.attach_fps(self.get_raw_frame())
-        preprocessed_frame = self.attach_fps(preprocessfunc(raw_frame))
-        return preprocessed_frame
-
-    def get_concat_frame(self, preprocessfunc):
-        raw_frame = self.get_raw_frame()
-        preprocessed_frame = preprocessfunc(raw_frame)
-        frame = np.concatenate((raw_frame, preprocessed_frame), axis=1)
-        return frame
     
     def sp_noise(self,image,prob):
         output = np.zeros(image.shape,np.uint8)
@@ -420,68 +365,70 @@ class Camera:
             boxes, scores, pred_classes = self.last_frame_output
             self.skipped_frame_count +=1
         else:
-            boxes, scores, pred_classes = self.detector.detect(frame, self.detect_box, self.frame_skip, selected_classes = self.selected_classes,preprocess_functions = self.preprocess_functions)
+            # start = time.time()
+            boxes, scores, pred_classes = self.detector.detect(frame, self.detect_box, selected_classes = self.selected_classes)
+            # print("detect time: %.2f" % (time.time() - start))
             self.last_frame_output = (boxes, scores, pred_classes)
             self.skipped_frame_count = 0
 
-        frame = self.draw_marker_lines(frame)
+        # frame = self.draw_marker_lines(frame)
         frame = self.draw_detect_box(frame,((x1,y1),(x2,y2)))
 
-        boxes_to_track = []
-        tracked_boxes_and_ids = []
-        for box in boxes:
-            (x1_box,y1_box),(x2_box,y2_box) = box
-            #Put offset x1 and y1 to match crop box
-            boxes_to_track.append([x1_box+x1,y1_box+y1,x2_box+x1,y2_box+y1])
+        # boxes_to_track = []
+        # tracked_boxes_and_ids = []
+        # for box in boxes:
+        #     (x1_box,y1_box),(x2_box,y2_box) = box
+        #     #Put offset x1 and y1 to match crop box
+        #     boxes_to_track.append([x1_box+x1,y1_box+y1,x2_box+x1,y2_box+y1])
 
-        if len(boxes_to_track) > 0:
-            tracked_boxes_and_ids = self.track_object(boxes_to_track)
+        # if len(boxes_to_track) > 0:
+        #     tracked_boxes_and_ids = self.track_object(boxes_to_track)
 
-        denormalized_markerlines_dict = self.markerlines_dict.copy()
-        for key in denormalized_markerlines_dict.keys():
-            coordinate1 = denormalized_markerlines_dict[key][0]
-            coordinate2 = denormalized_markerlines_dict[key][1]
-            coordinate1 = denormalize_coordinate(frame, coordinate1)
-            coordinate2 = denormalize_coordinate(frame, coordinate2)
-            denormalized_markerlines_dict[key] = (coordinate1, coordinate2)
+        # denormalized_markerlines_dict = self.markerlines_dict.copy()
+        # for key in denormalized_markerlines_dict.keys():
+        #     coordinate1 = denormalized_markerlines_dict[key][0]
+        #     coordinate2 = denormalized_markerlines_dict[key][1]
+        #     coordinate1 = denormalize_coordinate(frame, coordinate1)
+        #     coordinate2 = denormalize_coordinate(frame, coordinate2)
+        #     denormalized_markerlines_dict[key] = (coordinate1, coordinate2)
 
-        self.trackManager.HandleNewTracks(tracked_boxes_and_ids,denormalized_markerlines_dict, self.redlight_markerline_ids)
+        # self.trackManager.HandleNewTracks(tracked_boxes_and_ids,denormalized_markerlines_dict, self.redlight_markerline_ids)
 
         #Draw all the tracks   
-        for track in self.trackManager.tracks:
-            if track.isActive :
-                track_x, track_y = track.GetCurrentPosition()
-                frame = cv2.circle(frame,(track_x, track_y), radius=2, color=(0, 0, 255), thickness=-1) 
+        # for track in self.trackManager.tracks:
+        #     if track.isActive :
+        #         track_x, track_y = track.GetCurrentPosition()
+        #         frame = cv2.circle(frame,(track_x, track_y), radius=2, color=(0, 0, 255), thickness=-1) 
                 
-                text = 'Crossed: '
-                for markerline in track.crossedMarkerlineIDs:
-                    text += markerline
-                    text += ','
-                cv2.putText(frame, text, (track_x, track_y), cv2.FONT_HERSHEY_DUPLEX,0.45, (0,255,0), 1, cv2.LINE_AA)
+        #         text = 'Crossed: '
+        #         for markerline in track.crossedMarkerlineIDs:
+        #             text += markerline
+        #             text += ','
+        #         cv2.putText(frame, text, (track_x, track_y), cv2.FONT_HERSHEY_DUPLEX,0.45, (0,255,0), 1, cv2.LINE_AA)
                 
-                # Connect track's history dots
-                for i in range(len(track.history)-1):
-                    history1 = track.history[i]
-                    history2 = track.history[i+1]
-                    history1_x, history1_y = history1[0],history1[1]
-                    history2_x, history2_y = history2[0],history2[1]
-                    frame = cv2.line(frame,(history1_x,history1_y),(history2_x,history2_y),color=(255, 0, 0),thickness=2)
+        #         # Connect track's history dots
+        #         for i in range(len(track.history)-1):
+        #             history1 = track.history[i]
+        #             history2 = track.history[i+1]
+        #             history1_x, history1_y = history1[0],history1[1]
+        #             history2_x, history2_y = history2[0],history2[1]
+        #             frame = cv2.line(frame,(history1_x,history1_y),(history2_x,history2_y),color=(255, 0, 0),thickness=2)
         
-        self.draw_marker_lines(frame)
+        # self.draw_marker_lines(frame)
 
         if len(boxes) > 0:
             frame = self.detector.draw_boxes(frame, boxes, scores, pred_classes, x1, y1)
 
-        if len(self.redlight_markerline_ids) > 0:
-            text = f"RED LIGHT!"
-            textpos=(0,100)
-            cv2.putText(frame, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
+        # if len(self.redlight_markerline_ids) > 0:
+        #     text = f"RED LIGHT!"
+        #     textpos=(0,100)
+        #     cv2.putText(frame, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
         
         return frame
     
-    def detect_object_lowlight_enhance(self, frame):
-        self.set_preprocess_functions = [self.lowlight_enhance]
-        return self.detect_object(frame)
+    # def detect_object_lowlight_enhance(self, frame):
+    #     self.set_preprocess_functions = [self.lowlight_enhance]
+    #     return self.detect_object(frame)
 
     def get_detect_object_lowlight_enhance_frame(self):
         frame = self.get_raw_frame()
@@ -524,7 +471,6 @@ class Camera:
         '''Detect if the traffic light is green or red depending on the number of green and red pixels in the frame
         @params[frame]: frame in bgr format 
         '''
-        
         if frame is None:
             return False
         new_frame = cv2.cvtColor(frame,COLOR_BGR2HSV)
@@ -545,48 +491,25 @@ class Camera:
 if __name__ == '__main__':
     fps = 24
     fps_max = 24
-    camera = Camera(fps_max,"./sample/akihabara_03.mp4",True, detector=MobileDetDetector())
-    camera.set_marker_lines(VIDEO_05_MARKERLINES)
-    camera.set_detect_box(VIDEO_05_DETECT_BOX)
-    camera.set_frame_skip(3)
-    camera.run()
+    camera = Camera(fps_max,"./sample/home_night_01.mp4",True, detector=MobileDetDetector())
+    # camera.set_marker_lines(VIDEO_05_MARKERLINES)
+    camera.set_detect_box(0.25,0.05,0.65,0.75)
+    camera.set_frame_skip(0)
+    camera.set_selected_classes(["motorbike","person"])
+    camera.set_preprocess_functions([camera.lowlight_enhance])
+    camera.set_video_output("./output/home_night_02_mobileDet_lle.mp4")
+    video_source = cv2.VideoCapture("./sample/home_night_02.mp4")
     i = 0
     inference_time_history = []
-    while True:
-        frame = camera.get_raw_frame()
+    ret, frame = video_source.read()
+    while ret is not None and i < 500:
+        ret, frame = video_source.read()
         if frame is None:
             continue           
-
-        i +=1
-        if i > 2000:
-            break
-            
+        i+=1
         start = time.time()
-
-        # Brightness enhancing
-        # print("Brightness before enhancing")
-        # print("%.2f" % brightness(frame))
-        # print("Brightness after enhancing")
-        # print("%.2f" % brightness(frame))
-
-        # Retrieve redlight_box and denormalize it
-        redlight_box = denormalize_coordinates(frame,AKIHABARA_03_REDLIGHT_BOX)
-
-        # Detect redlight and add ids to redlight markerline ids
-        redlight_crop = imcrop(frame, redlight_box)
-        if camera.detect_red_light(redlight_crop):
-            camera.redlight_markerline_ids = ["wee"]
-        else:
-            camera.redlight_markerline_ids = []
-
-        # Write "Red Light" on frame if the light is red
-        if len(camera.redlight_markerline_ids) > 0:
-            text = f"RED LIGHT!"
-            textpos=(0,100)
-            cv2.putText(frame, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
-        
-
-        # Running time calculation
+        print("camera.py executing " + str(i))
+        frame = camera.detect_object(frame)
         inference_time_history.append(time.time() - start)
         if len(inference_time_history) > 10:
             inference_time_history = inference_time_history[1:]
@@ -594,10 +517,6 @@ if __name__ == '__main__':
         if i%100 == 0 and i > 0:
             print("camera.py executing " + str(i))
             print("FPS: ", str(1/(sum(inference_time_history)/len(inference_time_history))))
-
-        # camera.draw_detect_box(frame,redlight_box)
-        # Write camera to  out.png
-        cv2.imwrite("out.png",frame)
 
         camera.write_frame_to_output_file(frame)
 

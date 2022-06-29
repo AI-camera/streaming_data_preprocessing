@@ -1,0 +1,2 @@
+% bbGt version=3
+People 181 322 48 128 0 0 0 0 0 0 0

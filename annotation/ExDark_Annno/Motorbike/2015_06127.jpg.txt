@@ -1,0 +1,3 @@
+% bbGt version=3
+Chair 12 108 276 491 0 0 0 0 0 0 0
+Motorbike 58 49 1605 961 0 0 0 0 0 0 0

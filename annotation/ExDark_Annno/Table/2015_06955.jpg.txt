@@ -1,0 +1,2 @@
+% bbGt version=3
+Table 39 390 750 273 0 0 0 0 0 0 0

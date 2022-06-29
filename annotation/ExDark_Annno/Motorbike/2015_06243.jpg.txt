@@ -1,0 +1,7 @@
+% bbGt version=3
+Motorbike 14 88 44 49 0 0 0 0 0 0 0
+Motorbike 9 129 94 156 0 0 0 0 0 0 0
+Motorbike 18 249 172 201 0 0 0 0 0 0 0
+Motorbike 195 258 142 153 0 0 0 0 0 0 0
+Motorbike 95 400 328 274 0 0 0 0 0 0 0
+Car 81 114 108 122 0 0 0 0 0 0 0

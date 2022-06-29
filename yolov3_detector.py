@@ -41,11 +41,13 @@ class Detector:
         self.edge_tpu = edge_tpu
         self.quantization = quantization
         self.threshold = threshold
-        self.vehicle_names = ["cars","motorbike"]
+        self.preprocess_functions = []
 
         self.interpreter = self.make_interpreter()
         self.interpreter.allocate_tensors()
 
+    def set_preprocess_functions(self,preprocess_functions):
+        self.preprocess_functions = preprocess_functions
 
     def make_interpreter(self):
         ''' 
@@ -85,7 +87,7 @@ class Detector:
         text = pytesseract.image_to_string(invert, config='--psm 6')
         return text
 
-    def inference(self, img, preprocess_functions=[]):
+    def inference(self, img):
         '''
         Make inference base on an interpreter
         - Args:
@@ -106,9 +108,9 @@ class Detector:
 
         # performs post-reshape preprocessing
         try:
-            if preprocess_functions is not None:
-                for preprocess_function in preprocess_functions:
-                    img = preprocess_function(img)
+            if self.preprocess_functions is not None:
+                for function in self.preprocess_functions:
+                    img = function(img)
         except:
             print("yolov3_detector.py Something is wrong with post-reshape preprocessing")
 
@@ -184,7 +186,7 @@ class Detector:
             * offset_y: base y corrdinate of cropbox
         '''
         i = 0
-        vehicle_names = ["car","motorbike"]
+        # vehicle_names = ["car","motorbike"]
         vehicle_count = 0
         for topleft, botright in boxes:
             # Detected class
@@ -221,8 +223,8 @@ class Detector:
             score = scores[i] * 100
             cl_name = self.classes[cl]
             
-            if cl_name in vehicle_names:
-                vehicle_count +=1
+            # if cl_name in vehicle_names:
+            #     vehicle_count +=1
 
             text = f"{cl_name} ({score:.1f}%)"
             cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,
@@ -243,13 +245,13 @@ class Detector:
 
         return input_details, output_details, input_shape
 
-    def detect(self,img,crop_box=None, frame_skip=0, selected_classes = ["car","motorbike"],preprocess_functions=[]):
+    def detect(self,img,crop_box=None, selected_classes = ["car","motorbike"]):
         '''
         Make inference on an image
         - Args:
             * img: Input image
             * crop_box: Specify a region on image to do inference. Format ((x1,y1),(x2,y2)). Value range: 0-100
-            * frame_skip: Detect once per frame_skip value (frame_skip = 0 means no skipping)
+
             * selected_classes: Classes that are to be detected
         - Return:
             * (boxes, scores, pred_classes)
@@ -262,9 +264,8 @@ class Detector:
         #Crop the image using (x1,y1) and (x2,y2)
         x1,y1 = denormalize_coordinate(img,crop_box[0])
         x2,y2 = denormalize_coordinate(img,crop_box[1])
-        cropped_img = imcrop(img,(x1,y1,x2,y2))
-
-        boxes, scores, pred_classes = self.inference(img, preprocess_functions=preprocess_functions)
+        cropped_img = imcrop(img,x1,y1,x2,y2)
+        boxes, scores, pred_classes = self.inference(cropped_img)
         # Get the boxes of selected class
         result_list = [(box, score, pred_class) for (box, score, pred_class) in zip(boxes, scores,pred_classes) if self.classes[int(pred_class)] in selected_classes]
 
