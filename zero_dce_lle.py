@@ -40,6 +40,8 @@ class ZeroDCELLE:
 
     def lowlight_enhance(self,frame):
         # Make the inference
+        frame = letterbox_image(frame.copy().astype('uint8'), (512, 512))
+        frame = np.expand_dims(frame, axis=0)
         self.interpreter.set_tensor(self.input_details[0]['index'], frame)
         self.interpreter.invoke()
         out1 = self.interpreter.get_tensor(self.output_details[0]['index'])
@@ -63,18 +65,16 @@ class ZeroDCELLE:
         enhance_image[enhance_image>255] = 255
         enhance_image[enhance_image<0] = 0
         enhance_image = np.squeeze(enhance_image)
-        enhance_image
         return enhance_image.astype('uint8')
         
 
 if __name__ == "__main__":
-    # zero_dce_lle = ZeroDCELLE()
+    zero_dce_lle = ZeroDCELLE()
     frame = cv2.imread("images/Car/2015_02420.jpg")
-    frame = cv2.resize(frame,(250,250),interpolation = cv2.INTER_AREA)
-    # start = time()
-    # output = zero_dce_lle.lowlight_enhance(np.expand_dims(frame, axis=0))
-    # print(f"Inference time zero_dce: {(time() - start):.2f}")
-    # cv2.imwrite("output/out_dce.png",output)
+    start = time()
+    output = zero_dce_lle.lowlight_enhance(frame)
+    print(f"Inference time zero_dce: {(time() - start):.2f}")
+    cv2.imwrite("output/out_dce.png",output)
 
     start = time()
     output = dcp_dehaze.lowlight_enhance(frame)

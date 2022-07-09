@@ -73,6 +73,8 @@ class Camera:
         self.motion_detect_enabled = False
         self.motion_detected = False
         self.motion_lock_counter = 0
+        self.motion_detect_skipped_frame=-1
+        self.motion_detect_frame_skips=5
 
         # SORT tracker
         self.tracker = Sort()
@@ -102,7 +104,7 @@ class Camera:
         # self.preprocess_functions = []
         self.redlight_markerline_ids=[]
         
-        self.run()
+        # self.run()
 
     def set_detect_box(self,x1,y1,x2,y2):
         '''The detect_box should be percentage'''
@@ -145,7 +147,7 @@ class Camera:
             print("A camera thread is running already!")
 
     def _capture_loop(self):
-        dt = 1/self.fps
+        # dt = 1/self.fps
         v, img = self.video_source.read()
 
         while self.isrunning:
@@ -159,9 +161,14 @@ class Camera:
                 self.video_source.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
             if (self.motion_detect_enabled):
-                self.detect_motion()
+                # self.detect_motion()
+                if (self.motion_detect_skipped_frame >= self.motion_detect_frame_skips):
+                    self.detect_motion()
+                    self.motion_detect_skipped_frame = 0
+                else:
+                    self.motion_detect_skipped_frame += 1
 
-            time.sleep(dt)
+            # time.sleep(dt)
     
     # def _lowlight_enhance_loop(self):
     #     while self.isrunning:
@@ -215,16 +222,17 @@ class Camera:
             self.last_frame = current_frame
             return 
 
-        resized_frame = cv2.resize(current_frame, (300,300), interpolation = cv2.INTER_AREA)
-
         if current_frame is not None:
-            if(frame_diff(self.last_frame, current_frame)):
-                self.motion_detected = True
-                self.motion_lock_counter = 480
-            elif self.motion_lock_counter > 0:
+            resized_frame = cv2.resize(current_frame, (300,300), interpolation = cv2.INTER_AREA)
+            if self.motion_lock_counter > 0:
                 self.motion_lock_counter -= 1
+                self.current_frame = None
+            elif(frame_diff(self.last_frame, current_frame)):
+                self.motion_detected = True
+                self.motion_lock_counter = 10
             else:
                 self.motion_detected = False
+                self.current_frame = None
                 
         
         self.last_frame = current_frame
@@ -498,6 +506,7 @@ if __name__ == '__main__':
     camera.set_selected_classes(["motorbike","person"])
     camera.set_preprocess_functions([camera.lowlight_enhance])
     camera.set_video_output("./output/home_night_02_mobileDet_lle.mp4")
+    # camera.run()
     video_source = cv2.VideoCapture("./sample/home_night_02.mp4")
     i = 0
     inference_time_history = []

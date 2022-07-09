@@ -12,9 +12,12 @@ fps = 60
 fps_max = 60
 streaming_time = 1000
 
-camera = Camera(fps_max,"./sample/akihabara_02.mp4",True)
-camera.set_detect_box(0.2,0.4,1,1)
-camera.set_selected_classes(["car"])
+# camera = Camera(fps_max,"./sample/akihabara_02.mp4",True)
+# camera = Camera(fps_max,"./sample/home_night_02.mp4",True)
+camera = Camera(fps_max,"./sample/face.mp4",True)
+camera.set_detect_box(0.1,0.1,0.5,0.75)
+camera.set_frame_skip(1)
+camera.set_selected_classes(["people"])
 camera.run()
 
 app = FastAPI(root_path='/cam1/')
@@ -29,8 +32,11 @@ async def gen(camera: Camera, detect_motion=False,preprocessing=[], processing=N
         try:
             frame = camera.get_raw_frame()
             if processing != None:
-                # if(detect_motion and camera.motion_detected):
-                frame = processing(frame)
+                if(detect_motion and camera.motion_detected):
+                    await asyncio.sleep(1)
+                if(not detect_motion) or (detect_motion and camera.motion_detected):
+                    frame = processing(frame)
+                
 
             if frame is None:
                 print("server-fastapi.py frame is None. Default to error image")
@@ -40,7 +46,7 @@ async def gen(camera: Camera, detect_motion=False,preprocessing=[], processing=N
                 frame = camera.encode_to_jpg(frame)
             # print(f"Encoding time: %.2f" % (finish_encode - start_encode))
             elapsed = time() - start
-            print(f"Time per frame %.2f, FPS: %.2f" % (elapsed,1/elapsed))
+            # print(f"Time per frame %.2f, FPS: %.2f" % (elapsed,1/elapsed))
             await asyncio.sleep(0)
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n') 
@@ -110,7 +116,7 @@ async def vehicle_detect():
 async def auto_smart():
     return StreamingResponse(gen(camera,
                                 detect_motion=False,
-                                preprocessing=[camera.lowlight_enhance],
+                                preprocessing=[],
                                 processing=camera.detect_object), 
                             media_type="multipart/x-mixed-replace; boundary=--frame")
 

@@ -1,0 +1,45 @@
+Processing file: 79.png 
+Entropy of 79.png is 5.857099624671126 
+Processed Entropy of 79.png is 7.4657183540752685 
+Processing file: 79.png 
+Entropy of 79.png is 5.225201256775397 
+Processed Entropy of 79.png is 7.113739091969345 
+Processing file: 79.png 
+Entropy of 79.png is 5.177201791108382 
+Processed Entropy of 79.png is 7.046281960083839 
+Processing file: 79.png 
+Entropy of 79.png is 5.426364625334981 
+Processed Entropy of 79.png is 7.1907472129390815 
+Processing file: 79.png 
+Entropy of 79.png is 5.286849090887107 
+Processed Entropy of 79.png is 7.0106566982355725 
+Processing file: 79.png 
+Entropy of 79.png is 4.401454214726153 
+Processed Entropy of 79.png is 6.08882751417705 
+Processing file: 79.png 
+Entropy of 79.png is 4.189177511058432 
+Processed Entropy of 79.png is 5.650185094559147 
+Processing file: 79.png 
+Entropy of 79.png is 4.998833575716204 
+Processed Entropy of 79.png is 7.250108405396133 
+Processing file: 79.png 
+Entropy of 79.png is 4.5622926442094505 
+Processed Entropy of 79.png is 6.134610011596585 
+Processing file: 79.png 
+Entropy of 79.png is 4.257880125177397 
+Processed Entropy of 79.png is 6.440192112050742 
+Processing file: 79.png 
+Entropy of 79.png is 5.197719380328184 
+Processed Entropy of 79.png is 7.307829995637102 
+Processing file: 79.png 
+Entropy of 79.png is 4.794343106367031 
+Processed Entropy of 79.png is 7.009355118585662 
+Processing file: 79.png 
+Entropy of 79.png is 4.339695355996278 
+Processed Entropy of 79.png is 5.698902066961355 
+Processing file: 79.png 
+Entropy of 79.png is 4.786865225002389 
+Processed Entropy of 79.png is 6.488211009333159 
+Processing file: 79.png 
+Entropy of 79.png is 5.233718357015547 
+Processed Entropy of 79.png is 7.3351265261008916 

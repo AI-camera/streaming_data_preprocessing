@@ -1,5 +1,4 @@
 import cv2
-
 def frame_diff(frame1,frame2):
     diff = cv2.absdiff(frame1, frame2)
     gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
@@ -10,7 +9,8 @@ def frame_diff(frame1,frame2):
 
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area > 500 and area<2000:
+        # print(area)
+        if area > 1000 and area<2000:
             return True
-            
+    
     return False

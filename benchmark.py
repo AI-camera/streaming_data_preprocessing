@@ -4,16 +4,20 @@ import os
 import cv2
 import utils
 
-input_directory = "images/Car_fbs_02/"
-output_directory = "output/Car_fbs_02_mobileDet/"
-reference_directory = "images/NIND_low_ISO"
+# input_directory = "images/eval15/low"
+# reference_directory = "images/eval15/high"
+# output_directory = "output/NIND_low_ISO/"
+
+input_directory = "images/NIND_high_ISO/"
+reference_directory = "images/NIND_low_ISO/"
+# output_directory = "output/NIND_low_ISO/"
 
 fps = 24
 fps_max = 24
 camera = Camera(fps_max,"./sample/akihabara_03.mp4",True, detector=MobileDetDetector())
 camera.set_frame_skip(0)
 
-def iso_denoise_benchmark():
+def psnr_ssim_benchmark():
     input_filepaths = []
     reference_filepaths = []
 
@@ -23,42 +27,57 @@ def iso_denoise_benchmark():
         reference_filepaths.append(os.path.join(reference_directory,filename))
     
     i = 0
-    for i in range(len(input_filepaths)):
-        input_image = cv2.imread(input_filepaths[i])
-        reference_image = cv2.imread(reference_filepaths[i])
-        if input_image is None:
-            continue
-        print(f"Processing file: {filename}")
-        # input_image = dehaze.lowlight_enhance(input_image)
-        output_image = camera.denoise(input_image)
+    with open("./result_lle.txt","w") as f:
+        for i in range(len(input_filepaths)):
+            print("Processing image %s" % input_filepaths[i])
+            input_image = cv2.imread(input_filepaths[i])
+            reference_image = cv2.imread(reference_filepaths[i])
+            if input_image is None:
+                continue
+            f.write(f"Processing file: {filename} \n")
+            output_image = camera.lowlight_enhance(input_image)
+            # output_image = camera.denoise(input_image)
 
-        output_filename = os.path.join(output_directory,filename)
-        cv2.imwrite(output_filename,output_image)
-        
-        psnr = utils.calculate_psnr(reference_image,input_image)
-        print(f"PSNR of pair {filename} is {psnr}")
+            # output_filename = os.path.join(output_directory,filename)
+            # cv2.imwrite(output_filename,output_image)
+            
+            psnr = utils.calculate_psnr(reference_image,input_image)
+            f.write(f"PSNR of pair {filename} is {psnr} \n")
 
-        denoised_psnr = utils.calculate_psnr(reference_image,output_image)
-        print(f"Denoised PSNR of pair {filename} is {denoised_psnr}")
+            denoised_psnr = utils.calculate_psnr(reference_image,output_image)
+            f.write(f"Processed PSNR of pair {filename} is {denoised_psnr} \n")
 
-        ssim = utils.calculate_ssim(reference_image,input_image)
-        print(f"SSIM of pair {filename} is {ssim}")
+            ssim = utils.calculate_ssim(reference_image,input_image)
+            f.write(f"SSIM of pair {filename} is {ssim} \n")
 
-        denoised_ssim = utils.calculate_ssim(reference_image,output_image)
-        print(f"Denoised SSIM of pair {filename} is {denoised_ssim}")
+            denoised_ssim = utils.calculate_ssim(reference_image,output_image)
+            f.write(f"Processed SSIM of pair {filename} is {denoised_ssim} \n")
+    f.close()
 
-def file_benchmark():
-    camera.set_selected_classes(["car"])
+def entropy_benchmark():
+    input_filepaths = []
+    reference_filepaths = []
+
     for filename in sorted(os.listdir(input_directory)):
-        input_image = cv2.imread(os.path.join(input_directory,filename))
-        if input_image is None:
-            continue
-        print(f"Processing file: {filename}")
-        # input_image = dehaze.lowlight_enhance(input_image)
-        output = camera.detect_object(input_image)
-        
-        output_filename = os.path.join(output_directory,filename)
-        cv2.imwrite(output_filename,output)
+        input_filepaths.append(os.path.join(input_directory,filename))
+    
+    i = 0
+    with open("./result_lle.txt","w") as f:
+        for i in range(len(input_filepaths)):
+            print("Processing image %s" % input_filepaths[i])
+            input_image = cv2.imread(input_filepaths[i])
+            if input_image is None:
+                continue
+            f.write(f"Processing file: {filename} \n")
+
+            output_image = camera.lowlight_enhance(input_image)
+            
+            input_entropy = utils.entropy(input_image)
+            output_entropy = utils.entropy(output_image)
+            f.write(f"Entropy of {filename} is {input_entropy} \n")
+            f.write(f"Processed Entropy of {filename} is {output_entropy} \n")
+
+    f.close()
 
 def camera_benchmark():
     frame = camera.get_raw_frame()
@@ -85,4 +104,4 @@ def camera_benchmark():
     camera.out.release()
 
 if __name__ == '__main__':
-    file_benchmark()
+    psnr_ssim_benchmark()
