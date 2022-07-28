@@ -1,27 +1,36 @@
 import os
 from utils import *
 from camera import Camera
+import improved_dcp
 import cv2
+
+# from zero_dce_lle import ZeroDCELLE
 
 DEFAULT_LABELS = 'cfg/coco91.names'
 labels = get_classes(DEFAULT_LABELS)
 # Good car image: 20152409
-annotation_dir = "./annotation/ExDark_Annno/Car"
-# annotation_dir = "./annotation/ExDark_Annno/People"
+# annotation_dir = "./annotation/ExDark_Annno/Car"
+annotation_dir = "./annotation/ExDark_Annno/People"
 # annotation_dir = "./annotation/car_subset"
 # image_dir = "./images/BC_FBS/BC_FBS/Car/"
-# image_dir = "./images/BC_CR_RGB/Car/"
-image_dir = "./images/Car/"
-selected_classes = ["car"]
+# image_dir = "./images/BC_CR_RGB/BC_CR_RGB/Car/"
+# image_dir = "./images/Car/"
+image_dir = "./images/People"
+selected_classes = ["people"]
 
 # different values for iou threshold
-iou_threshold = [0.4,0.45,0.5,0.55,0.6,0.65,0.7]
-pred_threshold = 0.5
+pred_threshold = []
+for i in range(0,20):
+    i = i*0.25
+    pred_threshold.append(1-i)
+
+print(pred_threshold)
+iou_threshold = 0.5
 annotation_dict = {}
 
-true_pos = [0 for x in range(len(iou_threshold))]
-false_pos = [0 for x in range(len(iou_threshold))]
-false_neg = [0 for x in range(len(iou_threshold))]
+true_pos = [0 for x in range(len(pred_threshold))]
+false_pos = [0 for x in range(len(pred_threshold))]
+false_neg = [0 for x in range(len(pred_threshold))]
 
 # Annotation uses XYWH format
 # Extract annotation from annotation_dir
@@ -71,25 +80,28 @@ fps = 24
 fps_max = 24
 camera = Camera(fps_max,"./sample/home_night_01.mp4")
 camera.set_selected_classes(selected_classes)
+camera.set_frame_skip = 0
+camera.set_detect_box(0,0,1,1)
 # camera.set_preprocess_functions([camera.lowlight_enhance])
+camera.lle_scale = 1
+camera.lle_pyramid = True
 
-    
 # Use keys in annotation_dict as filename
 for image_filename in annotation_dict.keys():
-
     print("Processing %s" % (image_filename))
     # Read the file 
     image = cv2.imread(os.path.join(image_dir,image_filename))
     # Use camera detector to detect object on image
+    # image = improved_dcp.lowlight_enhance_modified(image,pyramid=True)
+    # image = improved_dcp.lowlight_enhance(image,pyramid=True)
     pred_boxes, scores, pred_classes = camera.detector.detect(image, camera.detect_box, selected_classes = camera.selected_classes)
     # num_match increase by 1 every match between pred_boxes and annotated boxes
     num_match = [0 for x in range(len(true_pos))]
     for i in range(len(pred_boxes)):
         # If the confidence score is less than threshold, continue
-        if scores[i] < pred_threshold:
-            continue
+        # if scores[i] < pred_threshold:
+        #     continue
         # If a box does not find a match, plus 1 for false pos
-        match_found = [False for x in range(len(true_pos))]
         for bbox in annotation_dict[image_filename]:
             # Check if the object name in bbox[0] is the same
             # If not, continue
@@ -98,23 +110,26 @@ for image_filename in annotation_dict.keys():
             # Compute the iou of predicted box and annotated box
             # if it reach threshold, plus 1 for true_pos
             # Perform this for all iou/pred threshold values
-            for j in range(len(true_pos)):
-                if iou(bbox[1:],pred_boxes[i]) > iou_threshold[j]:
-                    true_pos[j] += 1
-                    match_found[j] = True
+            for j in range(len(pred_threshold)):
+                # if score > threshold, determine it's true/false_pos aspect
+                if (scores[i]) > pred_threshold[j]:
+                    # If a 
+                    if iou(bbox[1:],pred_boxes[i]) >= iou_threshold:
+                        true_pos[j] += 1
+                        num_match[j] += 1
+                    # If a box does not find a match, plus 1 for false pos
+                    else:
+                        false_pos[j] += 1
 
-        # If a box does not find a match, plus 1 for false pos
-        for j in range(len(true_pos)):
-            if not match_found[j]:
-                false_pos[j] += 1
-            else:
-                num_match[j] += 1
-        
+                        
     # Increase number of false_neg by number_of_annotated_box - number_of_match
     # There is *negligible* amount of dupplicate match since we did nms on pred_boxes
     for j in range(len(true_pos)):
         false_neg[j] += len(annotation_dict[image_filename]) - num_match[j]
 
+print("true_pos = ")
 print(true_pos)
+print("false_pos = ")
 print(false_pos)
+print("false_neg = ")
 print(false_neg)

@@ -1,6 +1,6 @@
 import numpy as np
 import tflite_runtime.interpreter as tflite
-from time import time
+import time
 from utils import *
 import cv2 
 import tensorflow as tf
@@ -40,7 +40,8 @@ class ZeroDCELLE:
 
     def lowlight_enhance(self,frame):
         # Make the inference
-        frame = letterbox_image(frame.copy().astype('uint8'), (512, 512))
+        original_shape = (frame.shape[1],frame.shape[0])
+        frame = cv2.resize(frame, (512,512), interpolation = cv2.INTER_AREA)
         frame = np.expand_dims(frame, axis=0)
         self.interpreter.set_tensor(self.input_details[0]['index'], frame)
         self.interpreter.invoke()
@@ -65,18 +66,30 @@ class ZeroDCELLE:
         enhance_image[enhance_image>255] = 255
         enhance_image[enhance_image<0] = 0
         enhance_image = np.squeeze(enhance_image)
+
+        enhance_image = cv2.resize(enhance_image, original_shape, interpolation = cv2.INTER_AREA)
         return enhance_image.astype('uint8')
         
 
 if __name__ == "__main__":
+    input_directory = "./images/eval15/low"
+    output_directory = "./output/zero_dce_quantized_lle"
+    input_filepaths = []
+    output_filepaths = []
+    total_time = 0
+    count = 0
     zero_dce_lle = ZeroDCELLE()
-    frame = cv2.imread("images/Car/2015_02420.jpg")
-    start = time()
-    output = zero_dce_lle.lowlight_enhance(frame)
-    print(f"Inference time zero_dce: {(time() - start):.2f}")
-    cv2.imwrite("output/out_dce.png",output)
-
-    start = time()
-    output = dcp_dehaze.lowlight_enhance(frame)
-    print(f"Inference time dcp: {(time() - start):.2f}")
-    cv2.imwrite("output/out_dcp.png",output)
+    for filename in sorted(os.listdir(input_directory)):
+        input_filepaths.append(os.path.join(input_directory,filename))
+        output_filepaths.append(os.path.join(output_directory,filename))
+    
+    for i in range(len(input_filepaths)):
+        input_image = cv2.imread(input_filepaths[i])
+        start = time.time()
+        output_image = zero_dce_lle.lowlight_enhance(input_image)
+        total_time += time.time() - start
+        count += 1
+        cv2.imwrite(output_filepaths[i],output_image)
+    
+    print("Average time")
+    print(total_time/count)

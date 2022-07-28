@@ -45,7 +45,7 @@ DEFAULT_MODEL = 'models/ssdlite_mobiledet_coco_qat_postprocess_edgetpu.tflite'
 EDGETPU_SHARED_LIB = "libedgetpu.so.1"
 
 class Detector:
-  def __init__(self, quantization=True, threshold=0.5):
+  def __init__(self, quantization=True, threshold=0.6):
     self.labels = get_classes(DEFAULT_LABELS)
     self.model_path = DEFAULT_MODEL
     self.edge_tpu = True
@@ -99,7 +99,7 @@ class Detector:
     scores = []
 
     for obj in objs:
-      if self.labels[obj.id] in selected_classes:
+      if (self.labels[obj.id] in selected_classes) or len(selected_classes) == 0:
         bboxes.append(((obj.bbox.xmin,obj.bbox.ymin),(obj.bbox.xmax,obj.bbox.ymax)))
         classes.append(obj.id)
         scores.append(obj.score)
@@ -122,8 +122,6 @@ class Detector:
         * offset_y: base y corrdinate of cropbox
     '''
     i = 0
-    vehicle_names = ["car","motorbike"]
-    vehicle_count = 0
     for topleft, botright in boxes:
         # Detected class
         cl = int(classes[i])
@@ -138,17 +136,14 @@ class Detector:
         textpos = (topleft[0]-2, topleft[1] - 3)
         score = scores[i] * 100
         cl_name = self.labels[cl]
-        
-        if cl_name in vehicle_names:
-            vehicle_count +=1
 
         text = f"{cl_name} ({score:.1f}%)"
         cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,
                 0.45, color, 1, cv2.LINE_AA)
         i += 1
     
-    text = f"vehicle count: {vehicle_count}"
+    text = f"object count: {i}"
     textpos=(0,50)
-    # cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
+    cv2.putText(image, text, textpos, cv2.FONT_HERSHEY_DUPLEX,1,(255,255,255), 1, cv2.LINE_AA)
 
     return image

@@ -2,7 +2,8 @@ import numpy as np
 import os
 import cv2
 import math
-
+import skimage.measure
+from scipy import ndimage
 
 # Maximum number of boxes. Only the top scoring ones will be considered.
 MAX_BOXES = 30
@@ -227,11 +228,18 @@ def point_line_distance(point,linePoint1, linePoint2):
     print(np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1))
     return np.abs(np.cross(p2-p1, p3-p1))/ np.linalg.norm(p2-p1)
 
-def entropy(frame):
-    marg = np.histogramdd(np.ravel(frame), bins = 256)[0]/frame.size
-    marg = list(filter(lambda p: p > 0, np.ravel(marg)))
-    entropy = -np.sum(np.multiply(marg, np.log2(marg)))
-    return entropy
+# def entropy(frame):
+#     marg = np.histogramdd(np.ravel(frame), bins = 256)[0]/frame.size
+#     marg = list(filter(lambda p: p > 0, np.ravel(marg)))
+#     entropy = -np.sum(np.multiply(marg, np.log2(marg)))
+#     return entropy
+
+def standard_deviation(img):
+    return ndimage.standard_deviation(img)
+
+def entropy(img):
+    return skimage.measure.shannon_entropy(img)
+
 
 def calculate_psnr(img1, img2):
     # img1 and img2 have range [0, 255]

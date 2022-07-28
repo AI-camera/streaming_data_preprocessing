@@ -2,6 +2,8 @@ from os import stat_result, truncate
 
 from cv2 import COLOR_BGR2HSV
 import dcp_dehaze
+# from dcp_dehaze import lowlight_enhance
+from improved_dcp import lowlight_enhance
 import cv2
 import numpy as np
 import threading
@@ -16,7 +18,11 @@ from utils import *
 from track_manager import TrackManager
 from track import Track
 from frame_differencing import frame_diff
+from firebase_util.send_push import sendPush
+
 thread = None
+
+OBJECT_DETECT_MAX_AGE = 12
 
 VIDEO_05_MARKERLINES = dict()
 VIDEO_05_MARKERLINES["L1"] = ((0.28,0.68),(0.54,0.57))
@@ -48,8 +54,10 @@ class Camera:
         self.fps = max_fps
         self.max_fps = max_fps
         self.video_source = cv2.VideoCapture(video_source)
+        self.width  = self.video_source.get(cv2.CAP_PROP_FRAME_WIDTH)   
+        self.height = self.video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)
         # We want a max of 1s history to be stored, thats 3s*fps
-        self.max_frames = 1*self.fps
+        self.max_frames = 1
         self.frames = []
         self.lowlight_enhanced_frames = []
         self.isrunning = False
@@ -65,7 +73,7 @@ class Camera:
 
         self.detector = detector
 
-        self.default_error_image = cv2.imread("images/500-err.jpg")
+        self.default_error_image = cv2.imread("./images/500-err.jpg")
 
         # motion detector properties
         # self.motion_detector = OpticalFlowMotionDetector()
@@ -92,6 +100,8 @@ class Camera:
 
         # Define detect boxes
         self.detect_box = ((0,0),(1,1))
+        self.tentative_point_1 = (-10,-10)
+        self.tentative_point_2 = (-10,-10)
 
         # Define redlight boxes
         self.redlight_box = ((0,0),(1,1))
@@ -103,8 +113,22 @@ class Camera:
         self.selected_classes = ["car","motorbike"]
         # self.preprocess_functions = []
         self.redlight_markerline_ids=[]
-        
+
+        # Object detection
+        self.object_detected = False
+        self.object_detect_age = OBJECT_DETECT_MAX_AGE
+
+        # Scale for lowlight enhancement
+        self.lle_scale = 0.6
+        self.lle_pyramid = True
+
+        # Firebase notification sendPush
+        self.firebase_tokens = []
+
         # self.run()
+    
+    def set_lowlight_enhance_scale(scale):
+        self.lle_scale = scale
 
     def set_detect_box(self,x1,y1,x2,y2):
         '''The detect_box should be percentage'''
@@ -138,7 +162,7 @@ class Camera:
         global thread
         global subthread1
         thread = threading.Thread(target=self._capture_loop,daemon=True)
-        # subthread1 = threading.Thread(target=self._lowlight_enhance_loop,daemon=True)
+        
         if not self.isrunning:
             self.isrunning = True
             thread.start()
@@ -147,11 +171,13 @@ class Camera:
             print("A camera thread is running already!")
 
     def _capture_loop(self):
-        # dt = 1/self.fps
+        dt = 1/self.fps
         v, img = self.video_source.read()
 
         while self.isrunning:
+            # start = time.time()
             v, img = self.video_source.read()
+            # print("Time used to read from cam %.2f" % (time.time() - start))
             if v:
                 if len(self.frames) >= 2:
                     self.frames = self.frames[1:]
@@ -161,23 +187,13 @@ class Camera:
                 self.video_source.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
             if (self.motion_detect_enabled):
-                # self.detect_motion()
+                self.detect_motion()
                 if (self.motion_detect_skipped_frame >= self.motion_detect_frame_skips):
                     self.detect_motion()
                     self.motion_detect_skipped_frame = 0
                 else:
                     self.motion_detect_skipped_frame += 1
-
-            # time.sleep(dt)
-    
-    # def _lowlight_enhance_loop(self):
-    #     while self.isrunning:
-    #         frame = self.get_raw_frame()
-    #         if frame is not None:
-    #             if len(self.lowlight_enhanced_frames) == self.max_frames:
-    #                 self.lowlight_enhanced_frames = self.lowlight_enhanced_frames[1:]
-    #             frame = self.lowlight_enhance(frame)
-    #             self.lowlight_enhanced_frames.append(frame)
+            time.sleep(dt)
 
     def stop(self):
         self.isrunning = False
@@ -216,7 +232,7 @@ class Camera:
         return self.sizeStrConcat
 
     def detect_motion(self):
-        start = time.time()
+        # start = time.time()
         current_frame = self.get_raw_frame()
         if self.last_frame is None:
             self.last_frame = current_frame
@@ -236,8 +252,6 @@ class Camera:
                 
         
         self.last_frame = current_frame
-        # print("motion_detect_time:")
-        # print(time.time()-start)
 
     def get_fps(self):
         return self.fps
@@ -270,33 +284,36 @@ class Camera:
         '''
         - Histogram Equalize
         '''
-        frame_YCC = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
+        frame_YCC = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         channels = cv2.split(frame_YCC)
-        channels[0] = cv2.equalizeHist(channels[0])
-        frame_YCC = cv2.merge((channels[0], channels[1], channels[2]))
-        return cv2.cvtColor(frame_YCC, cv2.COLOR_YUV2BGR)
+        new_channels_V = cv2.equalizeHist(channels[2])
+        frame_YCC = cv2.merge((channels[0], channels[1], new_channels_V))
+        return cv2.cvtColor(frame_YCC, cv2.COLOR_HSV2BGR)
 
-    def lowlight_enhance(self, img, scale = 1):
+    def lowlight_enhance(self, img):
         '''
         - Lowlight enhance
         '''
         #Downscale the image for better performance
+        scale = self.lle_scale
+        pyramid = self.lle_pyramid
         if scale == 1:
-            return dcp_dehaze.lowlight_enhance(img)
+            return lowlight_enhance(img,pyramid=pyramid)
 
         width = int(img.shape[1] * scale)
         height = int(img.shape[0] * scale)
         dim = (width, height)
         img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
-        img = dcp_dehaze.lowlight_enhance(img)
 
-        scale = 1/scale #Scale back
+        img = lowlight_enhance(img,pyramid=pyramid)
+
+        scale = 1/self.lle_scale #Scale back
         width = int(img.shape[1] * scale)
         height = int(img.shape[0] * scale)
         dim = (width, height)
-        result = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+        result = cv2.resize(img, dim, interpolation = cv2.INTER_LINEAR)
 
-        return result.astype('uint8')
+        return result
     
     def dehaze(self, img, scale = 1):
         '''
@@ -378,6 +395,26 @@ class Camera:
             # print("detect time: %.2f" % (time.time() - start))
             self.last_frame_output = (boxes, scores, pred_classes)
             self.skipped_frame_count = 0
+
+        # Send Push if objects are detected
+        if len(boxes)>0:
+            # If previously not detecting any object, send push for object entered
+            if not self.object_detected:
+                # print("Object entered region")
+                self.object_detect_age = OBJECT_DETECT_MAX_AGE
+                if len(self.firebase_tokens) >0:
+                    sendPush("pi","Object entered region",registration_token=self.firebase_tokens)
+            self.object_detected = True
+        else:
+            # If previously detected any object, send push for object exited
+            if self.object_detect_age > 0:
+                self.object_detect_age -= 1
+            elif self.object_detected == True:
+                # print("Object exited region")
+                self.object_detected = False
+                if len(self.firebase_tokens) >0:
+                    sendPush("pi","Object exited region",registration_token=self.firebase_tokens)
+            
 
         # frame = self.draw_marker_lines(frame)
         frame = self.draw_detect_box(frame,((x1,y1),(x2,y2)))
@@ -500,34 +537,13 @@ if __name__ == '__main__':
     fps = 24
     fps_max = 24
     camera = Camera(fps_max,"./sample/home_night_01.mp4",True, detector=MobileDetDetector())
-    # camera.set_marker_lines(VIDEO_05_MARKERLINES)
-    camera.set_detect_box(0.25,0.05,0.65,0.75)
     camera.set_frame_skip(0)
-    camera.set_selected_classes(["motorbike","person"])
-    camera.set_preprocess_functions([camera.lowlight_enhance])
-    camera.set_video_output("./output/home_night_02_mobileDet_lle.mp4")
-    # camera.run()
-    video_source = cv2.VideoCapture("./sample/home_night_02.mp4")
+    camera.set_selected_classes(["motorcycle","people","car","bus","bicycle"])
     i = 0
     inference_time_history = []
-    ret, frame = video_source.read()
     while ret is not None and i < 500:
-        ret, frame = video_source.read()
-        if frame is None:
-            continue           
-        i+=1
-        start = time.time()
         print("camera.py executing " + str(i))
         frame = camera.detect_object(frame)
-        inference_time_history.append(time.time() - start)
-        if len(inference_time_history) > 10:
-            inference_time_history = inference_time_history[1:]
-
-        if i%100 == 0 and i > 0:
-            print("camera.py executing " + str(i))
-            print("FPS: ", str(1/(sum(inference_time_history)/len(inference_time_history))))
-
-        camera.write_frame_to_output_file(frame)
 
     camera.out.release()
     
